@@ -16,7 +16,7 @@
 <h3 align="center">
   <a href="https://discord.gg/QeFwyWSKwC">Community</a>  &bull;
   <a href="https://www.chartdb.io">Website</a>  &bull;
-  <a href="https://app.chartdb.io">Demo</a>
+  <a href="https://app.chartdb.io/examples">Demo</a>
 </h3>
 
 <h4 align="center">
@@ -67,6 +67,7 @@ ChartDB is currently in Public Beta. Star and watch this repository to get notif
 -   ✅ SQL Server
 -   ✅ MariaDB
 -   ✅ SQLite
+-   ✅ ClickHouse
 
 ## Getting Started
 

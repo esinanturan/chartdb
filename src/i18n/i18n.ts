@@ -1,18 +1,26 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import { en } from './locales/en';
+import { en, enMetadata } from './locales/en';
+import { es } from './locales/es';
+import { fr } from './locales/fr';
+import { de } from './locales/de';
+import { ja } from './locales/ja';
 
 const resources = {
     en,
+    es,
+    fr,
+    de,
+    ja,
 };
 
 i18n.use(initReactI18next).init({
     resources,
-    lng: 'en',
+    lng: enMetadata.code,
     interpolation: {
         escapeValue: false,
     },
-    fallbackLng: 'en',
+    fallbackLng: enMetadata.code,
     debug: false,
 });
 

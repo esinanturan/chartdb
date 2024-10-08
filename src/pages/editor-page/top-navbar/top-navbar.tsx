@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import TimeAgo from 'timeago-react';
+import React, { useCallback } from 'react';
 import {
     Menubar,
+    MenubarCheckboxItem,
     MenubarContent,
     MenubarItem,
     MenubarMenu,
@@ -12,76 +12,62 @@ import {
     MenubarSubTrigger,
     MenubarTrigger,
 } from '@/components/menubar/menubar';
-import { Label } from '@/components/label/label';
-import { Button } from '@/components/button/button';
-import { Check, Pencil } from 'lucide-react';
-import { Input } from '@/components/input/input';
 import { useChartDB } from '@/hooks/use-chartdb';
-import { useClickAway, useKeyPressEvent } from 'react-use';
-import ChartDBLogo from '@/assets/logo.png';
+import ChartDBLogo from '@/assets/logo-light.png';
+import ChartDBDarkLogo from '@/assets/logo-dark.png';
 import { useDialog } from '@/hooks/use-dialog';
-import { Badge } from '@/components/badge/badge';
-import {
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@/components/tooltip/tooltip';
 import { useExportImage } from '@/hooks/use-export-image';
 import { databaseTypeToLabelMap } from '@/lib/databases';
 import { DatabaseType } from '@/lib/domain/database-type';
 import { useConfig } from '@/hooks/use-config';
 import { IS_CHARTDB_IO } from '@/lib/env';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
-import { DiagramIcon } from '@/components/diagram-icon/diagram-icon';
 import {
     KeyboardShortcutAction,
     keyboardShortcutsForOS,
 } from '@/context/keyboard-shortcuts-context/keyboard-shortcuts';
 import { useHistory } from '@/hooks/use-history';
 import { useTranslation } from 'react-i18next';
+import { useLayout } from '@/hooks/use-layout';
+import { useTheme } from '@/hooks/use-theme';
+import { enMetadata } from '@/i18n/locales/en';
+import { esMetadata } from '@/i18n/locales/es';
+import { deMetadata } from '@/i18n/locales/de';
+import { jaMetadata } from '@/i18n/locales/ja';
+import { useLocalConfig } from '@/hooks/use-local-config';
+import { frMetadata } from '@/i18n/locales/fr';
+import { DiagramName } from './diagram-name';
+import { LastSaved } from './last-saved';
 
 export interface TopNavbarProps {}
 
 export const TopNavbar: React.FC<TopNavbarProps> = () => {
-    const {
-        diagramName,
-        updateDiagramName,
-        currentDiagram,
-        clearDiagramData,
-        deleteDiagram,
-    } = useChartDB();
+    const { clearDiagramData, deleteDiagram, updateDiagramUpdatedAt } =
+        useChartDB();
     const {
         openCreateDiagramDialog,
         openOpenDiagramDialog,
         openExportSQLDialog,
+        openImportDatabaseDialog,
         showAlert,
+        openExportImageDialog,
     } = useDialog();
-    const { t } = useTranslation();
+    const { setTheme, theme } = useTheme();
+    const { hideSidePanel, isSidePanelShowed, showSidePanel } = useLayout();
+    const {
+        scrollAction,
+        setScrollAction,
+        setShowCardinality,
+        showCardinality,
+        setShowDependenciesOnCanvas,
+        showDependenciesOnCanvas,
+    } = useLocalConfig();
+    const { effectiveTheme } = useTheme();
+    const { t, i18n } = useTranslation();
     const { redo, undo, hasRedo, hasUndo } = useHistory();
     const { isMd: isDesktop } = useBreakpoint('md');
     const { config, updateConfig } = useConfig();
-    const [editMode, setEditMode] = useState(false);
     const { exportImage } = useExportImage();
-    // const { setTheme } = useTheme();
-    const [editedDiagramName, setEditedDiagramName] =
-        React.useState(diagramName);
-    const inputRef = React.useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        setEditedDiagramName(diagramName);
-    }, [diagramName]);
-
-    const editDiagramName = useCallback(() => {
-        if (!editMode) return;
-        if (editedDiagramName.trim()) {
-            updateDiagramName(editedDiagramName.trim());
-        }
-
-        setEditMode(false);
-    }, [editedDiagramName, updateDiagramName, editMode]);
-
-    useClickAway(inputRef, editDiagramName);
-    useKeyPressEvent('Enter', editDiagramName);
 
     const createNewDiagram = () => {
         openCreateDiagramDialog();
@@ -91,24 +77,21 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
         openOpenDiagramDialog();
     };
 
-    const enterEditMode = (
-        event: React.MouseEvent<HTMLButtonElement, MouseEvent>
-    ) => {
-        event.stopPropagation();
-        setEditMode(true);
-    };
+    const exportSVG = useCallback(() => {
+        exportImage('svg', 1);
+    }, [exportImage]);
 
     const exportPNG = useCallback(() => {
-        exportImage('png');
-    }, [exportImage]);
-
-    const exportSVG = useCallback(() => {
-        exportImage('svg');
-    }, [exportImage]);
+        openExportImageDialog({
+            format: 'png',
+        });
+    }, [openExportImageDialog]);
 
     const exportJPG = useCallback(() => {
-        exportImage('jpeg');
-    }, [exportImage]);
+        openExportImageDialog({
+            format: 'jpeg',
+        });
+    }, [openExportImageDialog]);
 
     const openChartDBIO = useCallback(() => {
         window.location.href = 'https://chartdb.io';
@@ -116,6 +99,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
 
     const openJoinDiscord = useCallback(() => {
         window.open('https://discord.gg/QeFwyWSKwC', '_blank');
+    }, []);
+
+    const openCalendly = useCallback(() => {
+        window.open('https://calendly.com/fishner/15min', '_blank');
     }, []);
 
     const exportSQL = useCallback(
@@ -188,85 +175,33 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
         );
     }, [isDesktop]);
 
-    // const renderDarkModeToggle = () => {
-    //     return <DarkModeToggle />;
-    // };
+    const showOrHideSidePanel = useCallback(() => {
+        if (isSidePanelShowed) {
+            hideSidePanel();
+        } else {
+            showSidePanel();
+        }
+    }, [isSidePanelShowed, showSidePanel, hideSidePanel]);
 
-    const renderLastSaved = useCallback(() => {
-        return (
-            <Tooltip>
-                <TooltipTrigger>
-                    <Badge variant="secondary" className="flex gap-1">
-                        {isDesktop ? t('last_saved') : t('saved')}
-                        <TimeAgo datetime={currentDiagram.updatedAt} />
-                    </Badge>
-                </TooltipTrigger>
-                <TooltipContent>
-                    {currentDiagram.updatedAt.toLocaleString()}
-                </TooltipContent>
-            </Tooltip>
-        );
-    }, [currentDiagram.updatedAt, isDesktop, t]);
+    const showOrHideCardinality = useCallback(() => {
+        setShowCardinality(!showCardinality);
+    }, [showCardinality, setShowCardinality]);
 
-    const renderDiagramName = useCallback(() => {
-        return (
-            <>
-                <DiagramIcon diagram={currentDiagram} />
-                <div className="flex">
-                    {isDesktop ? <Label>{t('diagrams')}/</Label> : null}
-                </div>
-                <div className="flex flex-row items-center gap-1">
-                    {editMode ? (
-                        <>
-                            <Input
-                                ref={inputRef}
-                                autoFocus
-                                type="text"
-                                placeholder={diagramName}
-                                value={editedDiagramName}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                    setEditedDiagramName(e.target.value)
-                                }
-                                className="ml-1 h-7 focus-visible:ring-0"
-                            />
-                            <Button
-                                variant="ghost"
-                                className="hidden size-7 p-2 text-slate-500 hover:bg-primary-foreground hover:text-slate-700 group-hover:flex"
-                                onClick={editDiagramName}
-                            >
-                                <Check />
-                            </Button>
-                        </>
-                    ) : (
-                        <>
-                            <Label>{diagramName}</Label>
-                            <Button
-                                variant="ghost"
-                                className="hidden size-7 p-2 text-slate-500 hover:bg-primary-foreground hover:text-slate-700 group-hover:flex"
-                                onClick={enterEditMode}
-                            >
-                                <Pencil />
-                            </Button>
-                        </>
-                    )}
-                </div>
-            </>
-        );
-    }, [
-        currentDiagram,
-        diagramName,
-        editDiagramName,
-        editMode,
-        editedDiagramName,
-        isDesktop,
-        t,
-    ]);
+    const showOrHideDependencies = useCallback(() => {
+        setShowDependenciesOnCanvas(!showDependenciesOnCanvas);
+    }, [showDependenciesOnCanvas, setShowDependenciesOnCanvas]);
 
     const emojiAI = '✨';
 
+    const changeLanguage = useCallback(
+        (language: string) => {
+            i18n.changeLanguage(language);
+        },
+        [i18n]
+    );
+
     return (
-        <nav className="flex h-20 flex-col justify-between border-b px-4 md:h-12 md:flex-row md:items-center">
+        <nav className="flex h-20 flex-col justify-between border-b px-3 md:h-12 md:flex-row md:items-center md:px-4">
             <div className="flex flex-1 justify-between gap-x-3 md:justify-normal">
                 <div className="flex py-[10px] font-primary md:items-center md:py-0">
                     <a
@@ -275,7 +210,11 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                         rel="noreferrer"
                     >
                         <img
-                            src={ChartDBLogo}
+                            src={
+                                effectiveTheme === 'light'
+                                    ? ChartDBLogo
+                                    : ChartDBDarkLogo
+                            }
                             alt="chartDB"
                             className="h-4 max-w-fit"
                         />
@@ -293,7 +232,92 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                                 </MenubarItem>
                                 <MenubarItem onClick={openDiagram}>
                                     {t('menu.file.open')}
+                                    <MenubarShortcut>
+                                        {
+                                            keyboardShortcutsForOS[
+                                                KeyboardShortcutAction
+                                                    .OPEN_DIAGRAM
+                                            ].keyCombinationLabel
+                                        }
+                                    </MenubarShortcut>
                                 </MenubarItem>
+                                <MenubarItem onClick={updateDiagramUpdatedAt}>
+                                    {t('menu.file.save')}
+                                    <MenubarShortcut>
+                                        {
+                                            keyboardShortcutsForOS[
+                                                KeyboardShortcutAction
+                                                    .SAVE_DIAGRAM
+                                            ].keyCombinationLabel
+                                        }
+                                    </MenubarShortcut>
+                                </MenubarItem>
+                                <MenubarSeparator />
+                                <MenubarSub>
+                                    <MenubarSubTrigger>
+                                        {t('menu.file.import_database')}
+                                    </MenubarSubTrigger>
+                                    <MenubarSubContent>
+                                        <MenubarItem
+                                            onClick={() =>
+                                                openImportDatabaseDialog({
+                                                    databaseType:
+                                                        DatabaseType.POSTGRESQL,
+                                                })
+                                            }
+                                        >
+                                            {
+                                                databaseTypeToLabelMap[
+                                                    'postgresql'
+                                                ]
+                                            }
+                                        </MenubarItem>
+                                        <MenubarItem
+                                            onClick={() =>
+                                                openImportDatabaseDialog({
+                                                    databaseType:
+                                                        DatabaseType.MYSQL,
+                                                })
+                                            }
+                                        >
+                                            {databaseTypeToLabelMap['mysql']}
+                                        </MenubarItem>
+                                        <MenubarItem
+                                            onClick={() =>
+                                                openImportDatabaseDialog({
+                                                    databaseType:
+                                                        DatabaseType.SQL_SERVER,
+                                                })
+                                            }
+                                        >
+                                            {
+                                                databaseTypeToLabelMap[
+                                                    'sql_server'
+                                                ]
+                                            }
+                                        </MenubarItem>
+                                        <MenubarItem
+                                            onClick={() =>
+                                                openImportDatabaseDialog({
+                                                    databaseType:
+                                                        DatabaseType.MARIADB,
+                                                })
+                                            }
+                                        >
+                                            {databaseTypeToLabelMap['mariadb']}
+                                        </MenubarItem>
+                                        <MenubarItem
+                                            onClick={() =>
+                                                openImportDatabaseDialog({
+                                                    databaseType:
+                                                        DatabaseType.SQLITE,
+                                                })
+                                            }
+                                        >
+                                            {databaseTypeToLabelMap['sqlite']}
+                                        </MenubarItem>
+                                    </MenubarSubContent>
+                                </MenubarSub>
                                 <MenubarSeparator />
                                 <MenubarSub>
                                     <MenubarSubTrigger>
@@ -462,37 +486,142 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                                 </MenubarItem>
                             </MenubarContent>
                         </MenubarMenu>
-                        {/* <MenubarMenu>
-                            <MenubarTrigger>View</MenubarTrigger>
+                        <MenubarMenu>
+                            <MenubarTrigger>
+                                {t('menu.view.view')}
+                            </MenubarTrigger>
                             <MenubarContent>
+                                <MenubarItem onClick={showOrHideSidePanel}>
+                                    {isSidePanelShowed
+                                        ? t('menu.view.hide_sidebar')
+                                        : t('menu.view.show_sidebar')}
+                                </MenubarItem>
+                                <MenubarSeparator />
+                                <MenubarItem onClick={showOrHideCardinality}>
+                                    {showCardinality
+                                        ? t('menu.view.hide_cardinality')
+                                        : t('menu.view.show_cardinality')}
+                                </MenubarItem>
+                                <MenubarItem onClick={showOrHideDependencies}>
+                                    {showDependenciesOnCanvas
+                                        ? t('menu.view.hide_dependencies')
+                                        : t('menu.view.show_dependencies')}
+                                </MenubarItem>
+                                <MenubarSeparator />
                                 <MenubarSub>
-                                    <MenubarSubTrigger>Theme</MenubarSubTrigger>
+                                    <MenubarSubTrigger>
+                                        {t('menu.view.zoom_on_scroll')}
+                                    </MenubarSubTrigger>
                                     <MenubarSubContent>
-                                        <MenubarItem
+                                        <MenubarCheckboxItem
+                                            checked={scrollAction === 'zoom'}
+                                            onClick={() =>
+                                                setScrollAction('zoom')
+                                            }
+                                        >
+                                            {t('zoom.on')}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            checked={scrollAction === 'pan'}
+                                            onClick={() =>
+                                                setScrollAction('pan')
+                                            }
+                                        >
+                                            {t('zoom.off')}
+                                        </MenubarCheckboxItem>
+                                    </MenubarSubContent>
+                                </MenubarSub>
+                                <MenubarSeparator />
+                                <MenubarSub>
+                                    <MenubarSubTrigger>
+                                        {t('menu.view.theme')}
+                                    </MenubarSubTrigger>
+                                    <MenubarSubContent>
+                                        <MenubarCheckboxItem
+                                            checked={theme === 'system'}
+                                            onClick={() => setTheme('system')}
+                                        >
+                                            {t('theme.system')}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            checked={theme === 'light'}
                                             onClick={() => setTheme('light')}
                                         >
-                                            Light
-                                        </MenubarItem>
-                                        <MenubarItem
+                                            {t('theme.light')}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            checked={theme === 'dark'}
                                             onClick={() => setTheme('dark')}
                                         >
-                                            Dark
-                                        </MenubarItem>
-                                        <MenubarItem
-                                            onClick={() => {
-                                                localStorage.removeItem(
-                                                    'theme'
-                                                );
-
-                                                setTheme('system');
-                                            }}
+                                            {t('theme.dark')}
+                                        </MenubarCheckboxItem>
+                                    </MenubarSubContent>
+                                </MenubarSub>
+                                <MenubarSeparator />
+                                <MenubarSub>
+                                    <MenubarSubTrigger>
+                                        {t('menu.view.change_language')}
+                                    </MenubarSubTrigger>
+                                    <MenubarSubContent>
+                                        <MenubarCheckboxItem
+                                            onClick={() =>
+                                                changeLanguage(enMetadata.code)
+                                            }
+                                            checked={
+                                                i18n.language ===
+                                                enMetadata.code
+                                            }
                                         >
-                                            System
-                                        </MenubarItem>
+                                            {enMetadata.name}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            onClick={() =>
+                                                changeLanguage(esMetadata.code)
+                                            }
+                                            checked={
+                                                i18n.language ===
+                                                esMetadata.code
+                                            }
+                                        >
+                                            {esMetadata.name}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            onClick={() =>
+                                                changeLanguage(frMetadata.code)
+                                            }
+                                            checked={
+                                                i18n.language ===
+                                                frMetadata.code
+                                            }
+                                        >
+                                            {frMetadata.name}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            onClick={() =>
+                                                changeLanguage(deMetadata.code)
+                                            }
+                                            checked={
+                                                i18n.language ===
+                                                deMetadata.code
+                                            }
+                                        >
+                                            {deMetadata.name}
+                                        </MenubarCheckboxItem>
+                                        <MenubarCheckboxItem
+                                            onClick={() =>
+                                                changeLanguage(jaMetadata.code)
+                                            }
+                                            checked={
+                                                i18n.language ===
+                                                jaMetadata.code
+                                            }
+                                        >
+                                            {jaMetadata.name}
+                                        </MenubarCheckboxItem>
                                     </MenubarSubContent>
                                 </MenubarSub>
                             </MenubarContent>
-                        </MenubarMenu> */}
+                        </MenubarMenu>
                         <MenubarMenu>
                             <MenubarTrigger>
                                 {t('menu.help.help')}
@@ -504,6 +633,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
                                 <MenubarItem onClick={openJoinDiscord}>
                                     {t('menu.help.join_discord')}
                                 </MenubarItem>
+                                <MenubarItem onClick={openCalendly}>
+                                    {t('menu.help.schedule_a_call')}
+                                </MenubarItem>
                             </MenubarContent>
                         </MenubarMenu>
                     </Menubar>
@@ -512,24 +644,22 @@ export const TopNavbar: React.FC<TopNavbarProps> = () => {
             {isDesktop ? (
                 <>
                     <div className="group flex flex-1 flex-row items-center justify-center">
-                        {renderDiagramName()}
+                        <DiagramName />
                     </div>
                     <div className="hidden flex-1 items-center justify-end gap-2 sm:flex">
-                        {renderLastSaved()}
+                        <LastSaved />
                         {renderStars()}
-                        {/* {renderDarkModeToggle()} */}
                     </div>
                 </>
             ) : (
                 <div className="flex flex-1 flex-row justify-between gap-2">
                     <div className="group flex flex-1 flex-row items-center">
-                        {renderDiagramName()}
+                        <DiagramName />
                     </div>
-                    <div className="flex items-center">{renderLastSaved()}</div>
+                    <div className="flex items-center">
+                        <LastSaved />
+                    </div>
                     <div className="flex items-center">{renderStars()}</div>
-                    {/* <div className="flex justify-center items-center">
-                        {renderDarkModeToggle()}
-                    </div> */}
                 </div>
             )}
         </nav>

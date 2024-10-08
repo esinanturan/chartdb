@@ -7,6 +7,7 @@ export const sqliteQuery = `WITH fk_info AS (
               'column', fk."from",
               'foreign_key_name',
                   'fk_' || m.name || '_' || fk."from" || '_' || fk."table" || '_' || fk."to",  -- Generated foreign key name
+              'reference_schema', '', -- SQLite does not have schemas
               'reference_table', fk."table",
               'reference_column', fk."to",
               'fk_def',
@@ -27,7 +28,7 @@ export const sqliteQuery = `WITH fk_info AS (
               'schema', '',  -- SQLite does not have schemas
               'table', pk.table_name,
               'field_count', pk.field_count,
-              'pk_column', pk.pk_column,
+              'column', pk.pk_column,
               'pk_def', 'PRIMARY KEY (' || pk.pk_column || ')'
           )
       ) AS pk_metadata
@@ -58,7 +59,8 @@ export const sqliteQuery = `WITH fk_info AS (
               'cardinality', '',  -- SQLite does not provide cardinality
               'size', '',  -- SQLite does not provide index size
               'unique', (CASE WHEN idx."unique" = 1 THEN 'true' ELSE 'false' END),
-              'direction', ''  -- SQLite does not provide direction info
+              'direction', '',  -- SQLite does not provide direction info
+              'column_position', ic.seqno + 1  -- Adding 1 to convert from zero-based to one-based index
           )
       ) AS indexes_metadata
   FROM
@@ -116,7 +118,7 @@ export const sqliteQuery = `WITH fk_info AS (
   JOIN
       pragma_table_info(m.name) p
   ON
-      m.type = 'table'
+      m.type in ('table', 'view')
 ), tbls AS (
   SELECT
       json_group_array(
@@ -132,7 +134,7 @@ export const sqliteQuery = `WITH fk_info AS (
   FROM
       sqlite_master m
   WHERE
-      m.type = 'table'
+      m.type in ('table', 'view')
 ), views AS (
   SELECT
       json_group_array(

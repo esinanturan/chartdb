@@ -1,14 +1,8 @@
-import { generateText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { Diagram } from '../../domain/diagram';
+import type { Diagram } from '../../domain/diagram';
 import { OPENAI_API_KEY } from '@/lib/env';
-import { DatabaseType } from '@/lib/domain/database-type';
-import { DBTable } from '@/lib/domain/db-table';
-import { DataType } from '../data-types';
-
-const openai = createOpenAI({
-    apiKey: OPENAI_API_KEY,
-});
+import type { DatabaseType } from '@/lib/domain/database-type';
+import type { DBTable } from '@/lib/domain/db-table';
+import type { DataType } from '../data-types/data-types';
 
 export const exportBaseSQL = (diagram: Diagram): string => {
     const { tables, relationships } = diagram;
@@ -68,6 +62,18 @@ export const exportBaseSQL = (diagram: Diagram): string => {
 
         sqlScript += '\n);\n\n';
 
+        // Add table comment
+        if (table.comments) {
+            sqlScript += `COMMENT ON TABLE ${table.name} IS '${table.comments}';\n`;
+        }
+
+        table.fields.forEach((field) => {
+            // Add column comment
+            if (field.comments) {
+                sqlScript += `COMMENT ON COLUMN ${table.name}.${field.name} IS '${field.comments}';\n`;
+            }
+        });
+
         // Generate SQL for indexes
         table.indexes.forEach((index) => {
             const fieldNames = index.fieldIds
@@ -119,6 +125,11 @@ export const exportSQL = async (
     diagram: Diagram,
     databaseType: DatabaseType
 ): Promise<string> => {
+    const { generateText } = await import('ai');
+    const { createOpenAI } = await import('@ai-sdk/openai');
+    const openai = createOpenAI({
+        apiKey: OPENAI_API_KEY,
+    });
     const sqlScript = exportBaseSQL(diagram);
     const prompt = generateSQLPrompt(databaseType, sqlScript);
 

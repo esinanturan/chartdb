@@ -5,6 +5,7 @@ export const mariaDBQuery = `WITH fk_info as (
                 kcu.table_name,
                 kcu.column_name as fk_column,
                 kcu.constraint_name as foreign_key_name,
+                kcu.referenced_table_schema as reference_schema,
                 kcu.referenced_table_name as reference_table,
                 kcu.referenced_column_name as reference_column,
                 CONCAT('FOREIGN KEY (', kcu.column_name, ') REFERENCES ',
@@ -26,6 +27,7 @@ export const mariaDBQuery = `WITH fk_info as (
                                                '","table":"',table_name,
                                                '","column":"', IFNULL(fk_column, ''),
                                                           '","foreign_key_name":"', IFNULL(foreign_key_name, ''),
+                                                          '","reference_schema":"', IFNULL(reference_schema, ''),
                                                           '","reference_table":"', IFNULL(reference_table, ''),
                                                           '","reference_column":"', IFNULL(reference_column, ''),
                                                           '","fk_def":"', IFNULL(fk_def, ''),
@@ -36,8 +38,12 @@ export const mariaDBQuery = `WITH fk_info as (
                FROM (SELECT TABLE_SCHEMA,
                             TABLE_NAME AS pk_table,
                             COLUMN_NAME AS pk_column,
-                            CONCAT('PRIMARY KEY (', GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ', '), ')') AS pk_def
-                       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                            (SELECT CONCAT('PRIMARY KEY (', GROUP_CONCAT(inc.COLUMN_NAME ORDER BY inc.ORDINAL_POSITION SEPARATOR ', '), ')')
+                               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as inc
+                               WHERE inc.CONSTRAINT_NAME = 'PRIMARY' and
+                                     outc.TABLE_SCHEMA = inc.TABLE_SCHEMA and
+                                     outc.TABLE_NAME = inc.TABLE_NAME) AS pk_def
+                       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as outc
                        WHERE CONSTRAINT_NAME = 'PRIMARY'
                        GROUP BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
                        ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION) AS pk
@@ -116,7 +122,7 @@ export const mariaDBQuery = `WITH fk_info as (
                    AND table_schema = DATABASE()
                    AND (0x00) IN (@views:=CONCAT_WS(',', @views, CONCAT('{', '"schema":"', \`TABLE_SCHEMA\`, '",',
                                                    '"view_name":"', \`TABLE_NAME\`, '",',
-                                                   '"definition":"', REPLACE(REPLACE(TO_BASE64(VIEW_DEFINITION), ' ', ''), '\n', ''), '"}'))) ) )
+                                                   '"view_definition":"', REPLACE(REPLACE(TO_BASE64(VIEW_DEFINITION), ' ', ''), '\n', ''), '"}'))) ) )
 )
 (SELECT CAST(CONCAT('{"fk_info": [',IFNULL(@fk_info,''),
                 '], "pk_info": [', IFNULL(@pk_info, ''),

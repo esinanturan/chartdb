@@ -21,15 +21,13 @@ import {
 import { useConfig } from '@/hooks/use-config';
 import { useDialog } from '@/hooks/use-dialog';
 import { useStorage } from '@/hooks/use-storage';
-import { Diagram } from '@/lib/domain/diagram';
-import { DialogProps } from '@radix-ui/react-dialog';
+import type { Diagram } from '@/lib/domain/diagram';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import type { BaseDialogProps } from '../common/base-dialog-props';
 
-export interface OpenDiagramDialogProps {
-    dialog: DialogProps;
-}
+export interface OpenDiagramDialogProps extends BaseDialogProps {}
 
 export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
     dialog,
@@ -87,7 +85,7 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                 </DialogHeader>
                 <div className="flex flex-1 items-center justify-center">
                     <ScrollArea className="h-80 w-full">
-                        <Table>
+                        <Table className="h-fit">
                             <TableHeader className="sticky top-0 bg-background">
                                 <TableRow>
                                     <TableHead />
@@ -136,11 +134,15 @@ export const OpenDiagramDialog: React.FC<OpenDiagramDialogProps> = ({
                                             }
                                         }}
                                     >
-                                        <TableCell className="flex justify-center">
-                                            <DiagramIcon diagram={diagram} />
+                                        <TableCell className="table-cell">
+                                            <div className="flex justify-center">
+                                                <DiagramIcon
+                                                    diagram={diagram}
+                                                />
+                                            </div>
                                         </TableCell>
                                         <TableCell>{diagram.name}</TableCell>
-                                        <TableCell className="hidden items-center sm:inline-flex">
+                                        <TableCell className="hidden items-center sm:table-cell">
                                             {diagram.createdAt.toLocaleString()}
                                         </TableCell>
                                         <TableCell>

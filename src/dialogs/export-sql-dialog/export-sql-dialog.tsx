@@ -19,13 +19,12 @@ import {
 } from '@/lib/data/export-metadata/export-sql-script';
 import { databaseTypeToLabelMap } from '@/lib/databases';
 import { DatabaseType } from '@/lib/domain/database-type';
-import { DialogProps } from '@radix-ui/react-dialog';
 import { Annoyed, Sparkles } from 'lucide-react';
 import React, { useCallback, useEffect } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
+import type { BaseDialogProps } from '../common/base-dialog-props';
 
-export interface ExportSQLDialogProps {
-    dialog: DialogProps;
+export interface ExportSQLDialogProps extends BaseDialogProps {
     targetDatabaseType: DatabaseType;
 }
 
@@ -167,7 +166,7 @@ export const ExportSQLDialog: React.FC<ExportSQLDialogProps> = ({
                 <DialogFooter className="flex !justify-between gap-2">
                     <div />
                     <DialogClose asChild>
-                        <Button type="button">
+                        <Button type="button" variant="secondary">
                             {t('export_sql_dialog.close')}
                         </Button>
                     </DialogClose>

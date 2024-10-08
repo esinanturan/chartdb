@@ -1,9 +1,8 @@
 import React from 'react';
 import { Ellipsis, Trash2 } from 'lucide-react';
-import { Combobox } from '@/components/combobox/combobox';
 import { Button } from '@/components/button/button';
-import { DBIndex } from '@/lib/domain/db-index';
-import { DBField } from '@/lib/domain/db-field';
+import type { DBIndex } from '@/lib/domain/db-index';
+import type { DBField } from '@/lib/domain/db-field';
 import {
     Popover,
     PopoverContent,
@@ -14,6 +13,7 @@ import { Checkbox } from '@/components/checkbox/checkbox';
 import { Label } from '@/components/label/label';
 import { Input } from '@/components/input/input';
 import { useTranslation } from 'react-i18next';
+import { SelectBox } from '@/components/select-box/select-box';
 
 export interface TableIndexProps {
     index: DBIndex;
@@ -39,24 +39,27 @@ export const TableIndex: React.FC<TableIndexProps> = ({
     };
     return (
         <div className="flex flex-1 flex-row justify-between gap-2 p-1">
-            <Combobox
-                className="flex h-8 flex-1"
-                popoverClassName="w-48"
-                mode="multiple"
+            <SelectBox
+                className="flex h-8 min-h-8 min-w-0 flex-1"
+                multiple
+                oneLine
                 options={fieldOptions}
                 placeholder={t(
                     'side_panel.tables_section.table.index_select_fields'
                 )}
-                selected={index.fieldIds}
+                value={index.fieldIds}
                 onChange={updateIndexFields}
-                emptyText="No types found."
+                emptyPlaceholder={t(
+                    'side_panel.tables_section.table.no_types_found'
+                )}
+                keepOrder
             />
-            <div className="flex">
+            <div className="flex shrink-0">
                 <Popover>
                     <PopoverTrigger asChild>
                         <Button
                             variant="ghost"
-                            className="h-8 w-[32px] p-2 text-slate-500 hover:bg-primary-foreground hover:text-slate-700"
+                            className="h-8 w-[32px] p-2 text-slate-500 hover:bg-primary-foreground hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                         >
                             <Ellipsis className="size-3.5" />
                         </Button>
@@ -72,7 +75,7 @@ export const TableIndex: React.FC<TableIndexProps> = ({
                             <div className="flex flex-col gap-2">
                                 <Label
                                     htmlFor="width"
-                                    className="text-gray-700"
+                                    className="text-subtitle"
                                 >
                                     {t(
                                         'side_panel.tables_section.table.index_actions.name'
@@ -90,7 +93,7 @@ export const TableIndex: React.FC<TableIndexProps> = ({
                             <div className="mt-2 flex items-center justify-between">
                                 <Label
                                     htmlFor="width"
-                                    className="text-gray-700"
+                                    className="text-subtitle"
                                 >
                                     {t(
                                         'side_panel.tables_section.table.index_actions.unique'

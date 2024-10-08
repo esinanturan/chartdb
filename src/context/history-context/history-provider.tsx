@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { historyContext } from './history-context';
 import { useChartDB } from '@/hooks/use-chartdb';
 import { useRedoUndoStack } from '@/hooks/use-redo-undo-stack';
-import { RedoUndoActionHandlers } from './redo-undo-action';
+import type { RedoUndoActionHandlers } from './redo-undo-action';
 
 export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
     children,
@@ -16,16 +16,17 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
         hasUndo,
     } = useRedoUndoStack();
     const {
-        addTable,
-        removeTable,
+        addTables,
+        removeTables,
         updateTable,
         updateDiagramName,
         removeField,
         addField,
         updateField,
-        addRelationship,
         addRelationships,
-        removeRelationship,
+        addDependencies,
+        removeDependencies,
+        updateDependency,
         updateRelationship,
         updateTablesState,
         addIndex,
@@ -39,11 +40,11 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
             updateDiagramName: ({ redoData: { name } }) => {
                 return updateDiagramName(name, { updateHistory: false });
             },
-            addTable: ({ redoData: { table } }) => {
-                return addTable(table, { updateHistory: false });
+            addTables: ({ redoData: { tables } }) => {
+                return addTables(tables, { updateHistory: false });
             },
-            removeTable: ({ redoData: { tableId } }) => {
-                return removeTable(tableId, { updateHistory: false });
+            removeTables: ({ redoData: { tableIds } }) => {
+                return removeTables(tableIds, { updateHistory: false });
             },
             updateTable: ({ redoData: { tableId, table } }) => {
                 return updateTable(tableId, table, { updateHistory: false });
@@ -65,16 +66,8 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
                     updateHistory: false,
                 });
             },
-            addRelationship: ({ redoData: { relationship } }) => {
-                return addRelationship(relationship, { updateHistory: false });
-            },
             addRelationships: ({ redoData: { relationships } }) => {
                 return addRelationships(relationships, {
-                    updateHistory: false,
-                });
-            },
-            removeRelationship: ({ redoData: { relationshipId } }) => {
-                return removeRelationship(relationshipId, {
                     updateHistory: false,
                 });
             },
@@ -87,6 +80,19 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
             },
             removeRelationships: ({ redoData: { relationshipsIds } }) => {
                 return removeRelationships(relationshipsIds, {
+                    updateHistory: false,
+                });
+            },
+            addDependencies: ({ redoData: { dependencies } }) => {
+                return addDependencies(dependencies, { updateHistory: false });
+            },
+            removeDependencies: ({ redoData: { dependenciesIds } }) => {
+                return removeDependencies(dependenciesIds, {
+                    updateHistory: false,
+                });
+            },
+            updateDependency: ({ redoData: { dependencyId, dependency } }) => {
+                return updateDependency(dependencyId, dependency, {
                     updateHistory: false,
                 });
             },
@@ -103,22 +109,23 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
             },
         }),
         [
-            addTable,
-            removeTable,
+            addTables,
+            removeTables,
             updateTable,
             updateDiagramName,
             removeField,
             addField,
             updateField,
-            addRelationship,
             addRelationships,
-            removeRelationship,
             updateRelationship,
             updateTablesState,
             addIndex,
             removeIndex,
             updateIndex,
             removeRelationships,
+            addDependencies,
+            removeDependencies,
+            updateDependency,
         ]
     );
 
@@ -127,11 +134,17 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
             updateDiagramName: ({ undoData: { name } }) => {
                 return updateDiagramName(name, { updateHistory: false });
             },
-            addTable: ({ undoData: { tableId } }) => {
-                return removeTable(tableId, { updateHistory: false });
+            addTables: ({ undoData: { tableIds } }) => {
+                return removeTables(tableIds, { updateHistory: false });
             },
-            removeTable: ({ undoData: { table } }) => {
-                return addTable(table, { updateHistory: false });
+            removeTables: async ({
+                undoData: { tables, relationships, dependencies },
+            }) => {
+                await Promise.all([
+                    addTables(tables, { updateHistory: false }),
+                    addRelationships(relationships, { updateHistory: false }),
+                    addDependencies(dependencies, { updateHistory: false }),
+                ]);
             },
             updateTable: ({ undoData: { tableId, table } }) => {
                 return updateTable(tableId, table, { updateHistory: false });
@@ -147,13 +160,10 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
                     updateHistory: false,
                 });
             },
-            addRelationship: ({ undoData: { relationshipId } }) => {
-                return removeRelationship(relationshipId, {
+            addRelationships: ({ undoData: { relationshipIds } }) => {
+                return removeRelationships(relationshipIds, {
                     updateHistory: false,
                 });
-            },
-            removeRelationship: ({ undoData: { relationship } }) => {
-                return addRelationship(relationship, { updateHistory: false });
             },
             removeRelationships: ({ undoData: { relationships } }) => {
                 return addRelationships(relationships, {
@@ -167,11 +177,32 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
                     updateHistory: false,
                 });
             },
-            updateTablesState: ({ undoData: { tables } }) => {
-                return updateTablesState(() => tables, {
+            addDependencies: ({ undoData: { dependenciesIds } }) => {
+                return removeDependencies(dependenciesIds, {
                     updateHistory: false,
-                    forceOverride: true,
                 });
+            },
+            removeDependencies: ({ undoData: { dependencies } }) => {
+                return addDependencies(dependencies, {
+                    updateHistory: false,
+                });
+            },
+            updateDependency: ({ undoData: { dependencyId, dependency } }) => {
+                return updateDependency(dependencyId, dependency, {
+                    updateHistory: false,
+                });
+            },
+            updateTablesState: async ({
+                undoData: { tables, relationships, dependencies },
+            }) => {
+                await Promise.all([
+                    updateTablesState(() => tables, {
+                        updateHistory: false,
+                        forceOverride: true,
+                    }),
+                    addRelationships(relationships, { updateHistory: false }),
+                    addDependencies(dependencies, { updateHistory: false }),
+                ]);
             },
             addIndex: ({ undoData: { tableId, indexId } }) => {
                 return removeIndex(tableId, indexId, { updateHistory: false });
@@ -184,29 +215,25 @@ export const HistoryProvider: React.FC<React.PropsWithChildren> = ({
                     updateHistory: false,
                 });
             },
-            addRelationships: ({ undoData: { relationshipIds } }) => {
-                return removeRelationships(relationshipIds, {
-                    updateHistory: false,
-                });
-            },
         }),
         [
-            addTable,
-            removeTable,
+            addTables,
+            removeTables,
             updateTable,
             updateDiagramName,
             removeField,
             addField,
             updateField,
-            addRelationship,
             addRelationships,
-            removeRelationship,
             updateRelationship,
             updateTablesState,
             addIndex,
             removeIndex,
             updateIndex,
             removeRelationships,
+            addDependencies,
+            removeDependencies,
+            updateDependency,
         ]
     );
 

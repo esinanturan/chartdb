@@ -1,42 +1,36 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Dialog, DialogContent } from '@/components/dialog/dialog';
-import { DialogProps } from '@radix-ui/react-dialog';
 import { DatabaseType } from '@/lib/domain/database-type';
 import { useStorage } from '@/hooks/use-storage';
-import { Diagram, loadFromDatabaseMetadata } from '@/lib/domain/diagram';
+import type { Diagram } from '@/lib/domain/diagram';
+import { loadFromDatabaseMetadata } from '@/lib/domain/diagram';
 import { useNavigate } from 'react-router-dom';
 import { useConfig } from '@/hooks/use-config';
-import {
-    DatabaseMetadata,
-    isDatabaseMetadata,
-    loadDatabaseMetadata,
-} from '@/lib/data/import-metadata/metadata-types/database-metadata';
-import { generateId } from '@/lib/utils';
+import type { DatabaseMetadata } from '@/lib/data/import-metadata/metadata-types/database-metadata';
+import { loadDatabaseMetadata } from '@/lib/data/import-metadata/metadata-types/database-metadata';
+import { generateDiagramId } from '@/lib/utils';
 import { useChartDB } from '@/hooks/use-chartdb';
 import { useDialog } from '@/hooks/use-dialog';
-import { DatabaseEdition } from '@/lib/domain/database-edition';
-import { CreateDiagramDialogSelectDatabase } from './create-diagram-dialog-select-database/create-diagram-dialog-select-database';
+import type { DatabaseEdition } from '@/lib/domain/database-edition';
+import { SelectDatabase } from './select-database/select-database';
 import { CreateDiagramDialogStep } from './create-diagram-dialog-step';
-import { CreateDiagramDialogImportDatabase } from './create-diagram-dialog-import-database/create-diagram-dialog-import-database';
+import { ImportDatabase } from '../common/import-database/import-database';
+import { useTranslation } from 'react-i18next';
+import type { BaseDialogProps } from '../common/base-dialog-props';
 
-const errorScriptOutputMessage =
-    'Invalid JSON. Please correct it or contact us at chartdb.io@gmail.com for help.';
-
-export interface CreateDiagramDialogProps {
-    dialog: DialogProps;
-}
+export interface CreateDiagramDialogProps extends BaseDialogProps {}
 
 export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
     dialog,
 }) => {
     const { diagramId } = useChartDB();
+    const { t } = useTranslation();
     const [databaseType, setDatabaseType] = useState<DatabaseType>(
         DatabaseType.GENERIC
     );
     const { closeCreateDiagramDialog } = useDialog();
     const { updateConfig } = useConfig();
     const [scriptResult, setScriptResult] = useState('');
-    const [errorMessage, setErrorMessage] = useState('');
     const [databaseEdition, setDatabaseEdition] = useState<
         DatabaseEdition | undefined
     >();
@@ -60,57 +54,23 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
         setDatabaseType(DatabaseType.GENERIC);
         setDatabaseEdition(undefined);
         setScriptResult('');
-        setErrorMessage('');
     }, [dialog.open]);
-
-    useEffect(() => {
-        if (scriptResult.trim().length === 0) {
-            setErrorMessage('');
-            return;
-        }
-
-        try {
-            const parsedResult = JSON.parse(scriptResult);
-
-            if (isDatabaseMetadata(parsedResult)) {
-                setErrorMessage('');
-            } else {
-                setErrorMessage(errorScriptOutputMessage);
-            }
-        } catch (error) {
-            setErrorMessage(errorScriptOutputMessage);
-        }
-    }, [scriptResult]);
 
     const hasExistingDiagram = (diagramId ?? '').trim().length !== 0;
 
-    const createNewDiagram = useCallback(async () => {
-        let diagram: Diagram = {
-            id: generateId(),
-            name: `Diagram ${diagramNumber}`,
-            databaseType: databaseType ?? DatabaseType.GENERIC,
+    const importNewDiagram = useCallback(async () => {
+        const databaseMetadata: DatabaseMetadata =
+            loadDatabaseMetadata(scriptResult);
+
+        const diagram = await loadFromDatabaseMetadata({
+            databaseType,
+            databaseMetadata,
+            diagramNumber,
             databaseEdition:
                 databaseEdition?.trim().length === 0
                     ? undefined
                     : databaseEdition,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-        };
-
-        if (errorMessage.length === 0 && scriptResult.trim().length !== 0) {
-            const databaseMetadata: DatabaseMetadata =
-                loadDatabaseMetadata(scriptResult);
-
-            diagram = loadFromDatabaseMetadata({
-                databaseType,
-                databaseMetadata,
-                diagramNumber,
-                databaseEdition:
-                    databaseEdition?.trim().length === 0
-                        ? undefined
-                        : databaseEdition,
-            });
-        }
+        });
 
         await addDiagram({ diagram });
         await updateConfig({ defaultDiagramId: diagram.id });
@@ -125,7 +85,33 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
         updateConfig,
         scriptResult,
         diagramNumber,
-        errorMessage,
+    ]);
+
+    const createEmptyDiagram = useCallback(async () => {
+        const diagram: Diagram = {
+            id: generateDiagramId(),
+            name: `Diagram ${diagramNumber}`,
+            databaseType: databaseType ?? DatabaseType.GENERIC,
+            databaseEdition:
+                databaseEdition?.trim().length === 0
+                    ? undefined
+                    : databaseEdition,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        };
+
+        await addDiagram({ diagram });
+        await updateConfig({ defaultDiagramId: diagram.id });
+        closeCreateDiagramDialog();
+        navigate(`/diagrams/${diagram.id}`);
+    }, [
+        databaseType,
+        addDiagram,
+        databaseEdition,
+        closeCreateDiagramDialog,
+        navigate,
+        updateConfig,
+        diagramNumber,
     ]);
 
     return (
@@ -142,27 +128,32 @@ export const CreateDiagramDialog: React.FC<CreateDiagramDialogProps> = ({
             }}
         >
             <DialogContent
-                className="flex w-[90vw] flex-col overflow-visible xl:min-w-[45vw]"
+                className="flex max-h-[90vh] w-[90vw] max-w-[90vw] flex-col overflow-y-auto md:overflow-visible lg:max-w-[60vw] xl:lg:max-w-lg xl:min-w-[45vw]"
                 showClose={hasExistingDiagram}
             >
                 {step === CreateDiagramDialogStep.SELECT_DATABASE ? (
-                    <CreateDiagramDialogSelectDatabase
-                        createNewDiagram={createNewDiagram}
+                    <SelectDatabase
+                        createNewDiagram={createEmptyDiagram}
                         databaseType={databaseType}
                         hasExistingDiagram={hasExistingDiagram}
                         setDatabaseType={setDatabaseType}
-                        setStep={setStep}
+                        onContinue={() =>
+                            setStep(CreateDiagramDialogStep.IMPORT_DATABASE)
+                        }
                     />
                 ) : (
-                    <CreateDiagramDialogImportDatabase
-                        createNewDiagram={createNewDiagram}
+                    <ImportDatabase
+                        onImport={importNewDiagram}
+                        onCreateEmptyDiagram={createEmptyDiagram}
                         databaseEdition={databaseEdition}
                         databaseType={databaseType}
-                        errorMessage={errorMessage}
                         scriptResult={scriptResult}
                         setDatabaseEdition={setDatabaseEdition}
-                        setStep={setStep}
+                        goBack={() =>
+                            setStep(CreateDiagramDialogStep.SELECT_DATABASE)
+                        }
                         setScriptResult={setScriptResult}
+                        title={t('new_diagram_dialog.import_database.title')}
                     />
                 )}
             </DialogContent>

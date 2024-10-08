@@ -7,7 +7,7 @@ import {
     Check,
 } from 'lucide-react';
 import { ListItemHeaderButton } from '../../../../list-item-header-button/list-item-header-button';
-import { DBRelationship } from '@/lib/domain/db-relationship';
+import type { DBRelationship } from '@/lib/domain/db-relationship';
 import { useReactFlow } from '@xyflow/react';
 import { useChartDB } from '@/hooks/use-chartdb';
 import { useClickAway, useKeyPressEvent } from 'react-use';
@@ -45,14 +45,20 @@ export const RelationshipListItemHeader: React.FC<
 
     const editRelationshipName = useCallback(() => {
         if (!editMode) return;
-        if (relationshipName.trim()) {
+        if (relationshipName.trim() && relationshipName !== relationship.name) {
             updateRelationship(relationship.id, {
                 name: relationshipName.trim(),
             });
         }
 
         setEditMode(false);
-    }, [relationshipName, relationship.id, updateRelationship, editMode]);
+    }, [
+        relationshipName,
+        relationship.id,
+        updateRelationship,
+        editMode,
+        relationship.name,
+    ]);
 
     useClickAway(inputRef, editRelationshipName);
     useKeyPressEvent('Enter', editRelationshipName);
@@ -73,12 +79,10 @@ export const RelationshipListItemHeader: React.FC<
                         ? {
                               ...edge,
                               selected: true,
-                              animated: true,
                           }
                         : {
                               ...edge,
                               selected: false,
-                              animated: false,
                           }
                 )
             );

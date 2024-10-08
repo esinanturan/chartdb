@@ -1,8 +1,9 @@
-import { DBTable } from '@/lib/domain/db-table';
-import { ChartDBContext } from '../chartdb-context/chartdb-context';
-import { DBField } from '@/lib/domain/db-field';
-import { DBIndex } from '@/lib/domain/db-index';
-import { DBRelationship } from '@/lib/domain/db-relationship';
+import type { DBTable } from '@/lib/domain/db-table';
+import type { ChartDBContext } from '../chartdb-context/chartdb-context';
+import type { DBField } from '@/lib/domain/db-field';
+import type { DBIndex } from '@/lib/domain/db-index';
+import type { DBRelationship } from '@/lib/domain/db-relationship';
+import type { DBDependency } from '@/lib/domain/db-dependency';
 
 type Action = keyof ChartDBContext;
 
@@ -24,22 +25,30 @@ type RedoUndoActionUpdateTable = RedoUndoActionBase<
     { tableId: string; table: Partial<DBTable> }
 >;
 
-type RedoUndoActionAddTable = RedoUndoActionBase<
-    'addTable',
-    { table: DBTable },
-    { tableId: string }
+type RedoUndoActionAddTables = RedoUndoActionBase<
+    'addTables',
+    { tables: DBTable[] },
+    { tableIds: string[] }
 >;
 
-type RedoUndoActionRemoveTable = RedoUndoActionBase<
-    'removeTable',
-    { tableId: string },
-    { table: DBTable }
+type RedoUndoActionRemoveTables = RedoUndoActionBase<
+    'removeTables',
+    { tableIds: string[] },
+    {
+        tables: DBTable[];
+        relationships: DBRelationship[];
+        dependencies: DBDependency[];
+    }
 >;
 
 type RedoUndoActionUpdateTablesState = RedoUndoActionBase<
     'updateTablesState',
     { tables: DBTable[] },
-    { tables: DBTable[] }
+    {
+        tables: DBTable[];
+        relationships: DBRelationship[];
+        dependencies: DBDependency[];
+    }
 >;
 
 type RedoUndoActionAddField = RedoUndoActionBase<
@@ -78,22 +87,10 @@ type RedoUndoActionUpdateIndex = RedoUndoActionBase<
     { tableId: string; indexId: string; index: Partial<DBIndex> }
 >;
 
-type RedoUndoActionAddRelationship = RedoUndoActionBase<
-    'addRelationship',
-    { relationship: DBRelationship },
-    { relationshipId: string }
->;
-
 type RedoUndoActionAddRelationships = RedoUndoActionBase<
     'addRelationships',
     { relationships: DBRelationship[] },
     { relationshipIds: string[] }
->;
-
-type RedoUndoActionRemoveRelationship = RedoUndoActionBase<
-    'removeRelationship',
-    { relationshipId: string },
-    { relationship: DBRelationship }
 >;
 
 type RedoUndoActionUpdateRelationship = RedoUndoActionBase<
@@ -108,9 +105,27 @@ type RedoUndoActionRemoveRelationships = RedoUndoActionBase<
     { relationships: DBRelationship[] }
 >;
 
+type RedoUndoActionAddDependencies = RedoUndoActionBase<
+    'addDependencies',
+    { dependencies: DBDependency[] },
+    { dependenciesIds: string[] }
+>;
+
+type RedoUndoActionUpdateDependency = RedoUndoActionBase<
+    'updateDependency',
+    { dependencyId: string; dependency: Partial<DBDependency> },
+    { dependencyId: string; dependency: Partial<DBDependency> }
+>;
+
+type RedoUndoActionRemoveDependencies = RedoUndoActionBase<
+    'removeDependencies',
+    { dependenciesIds: string[] },
+    { dependencies: DBDependency[] }
+>;
+
 export type RedoUndoAction =
-    | RedoUndoActionAddTable
-    | RedoUndoActionRemoveTable
+    | RedoUndoActionAddTables
+    | RedoUndoActionRemoveTables
     | RedoUndoActionUpdateTable
     | RedoUndoActionUpdateDiagramName
     | RedoUndoActionUpdateTablesState
@@ -120,11 +135,12 @@ export type RedoUndoAction =
     | RedoUndoActionAddIndex
     | RedoUndoActionRemoveIndex
     | RedoUndoActionUpdateIndex
-    | RedoUndoActionAddRelationship
     | RedoUndoActionAddRelationships
-    | RedoUndoActionRemoveRelationship
     | RedoUndoActionUpdateRelationship
-    | RedoUndoActionRemoveRelationships;
+    | RedoUndoActionRemoveRelationships
+    | RedoUndoActionAddDependencies
+    | RedoUndoActionUpdateDependency
+    | RedoUndoActionRemoveDependencies;
 
 export type RedoActionData<T extends Action> = Extract<
     RedoUndoAction,

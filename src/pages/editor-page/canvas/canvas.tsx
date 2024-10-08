@@ -1,60 +1,170 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
-import {
-    ReactFlow,
-    useEdgesState,
-    useNodesState,
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from 'react';
+import type {
     addEdge,
-    Background,
-    BackgroundVariant,
-    MiniMap,
-    Controls,
     NodePositionChange,
     NodeRemoveChange,
-    useReactFlow,
     NodeDimensionChange,
     OnEdgesChange,
     OnNodesChange,
 } from '@xyflow/react';
+import {
+    ReactFlow,
+    useEdgesState,
+    useNodesState,
+    Background,
+    BackgroundVariant,
+    MiniMap,
+    Controls,
+    useReactFlow,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { TableNode, TableNodeType } from './table-node';
-import { TableEdge, TableEdgeType } from './table-edge';
+import equal from 'fast-deep-equal';
+import type { TableNodeType } from './table-node/table-node';
+import { MIN_TABLE_SIZE, TableNode } from './table-node/table-node';
+import type { RelationshipEdgeType } from './relationship-edge';
+import { RelationshipEdge } from './relationship-edge';
 import { useChartDB } from '@/hooks/use-chartdb';
-import { LEFT_HANDLE_ID_PREFIX, TARGET_ID_PREFIX } from './table-node-field';
+import {
+    LEFT_HANDLE_ID_PREFIX,
+    TARGET_ID_PREFIX,
+} from './table-node/table-node-field';
 import { Toolbar } from './toolbar/toolbar';
 import { useToast } from '@/components/toast/use-toast';
-import { Pencil } from 'lucide-react';
+import { Pencil, LayoutGrid, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/button/button';
 import { useLayout } from '@/hooks/use-layout';
 import { useBreakpoint } from '@/hooks/use-breakpoint';
 import { Badge } from '@/components/badge/badge';
+import { useTheme } from '@/hooks/use-theme';
+import { useTranslation } from 'react-i18next';
+import type { DBTable } from '@/lib/domain/db-table';
+import {
+    adjustTablePositions,
+    shouldShowTablesBySchemaFilter,
+} from '@/lib/domain/db-table';
+import { useLocalConfig } from '@/hooks/use-local-config';
+import {
+    Tooltip,
+    TooltipTrigger,
+    TooltipContent,
+} from '@/components/tooltip/tooltip';
+import { useDialog } from '@/hooks/use-dialog';
+import { MarkerDefinitions } from './marker-definitions';
+import { CanvasContextMenu } from './canvas-context-menu';
+import { areFieldTypesCompatible } from '@/lib/data/data-types/data-types';
+import {
+    calcTableHeight,
+    findOverlappingTables,
+    findTableOverlapping,
+} from './canvas-utils';
+import type { Graph } from '@/lib/graph';
+import { createGraph, removeVertex } from '@/lib/graph';
+import type { ChartDBEvent } from '@/context/chartdb-context/chartdb-context';
+import { debounce } from '@/lib/utils';
+import type { DependencyEdgeType } from './dependency-edge';
+import { DependencyEdge } from './dependency-edge';
+import {
+    BOTTOM_SOURCE_HANDLE_ID_PREFIX,
+    TARGET_DEP_PREFIX,
+    TOP_SOURCE_HANDLE_ID_PREFIX,
+} from './table-node/table-node-dependency-indicator';
 
-type AddEdgeParams = Parameters<typeof addEdge<TableEdgeType>>[0];
+export type EdgeType = RelationshipEdgeType | DependencyEdgeType;
 
-const initialNodes: TableNodeType[] = [];
-const initialEdges: TableEdgeType[] = [];
+type AddEdgeParams = Parameters<typeof addEdge<EdgeType>>[0];
 
-export interface CanvasProps {}
+const edgeTypes = {
+    'relationship-edge': RelationshipEdge,
+    'dependency-edge': DependencyEdge,
+};
 
-export const Canvas: React.FC<CanvasProps> = () => {
-    const { getEdge, getInternalNode } = useReactFlow();
+const initialEdges: EdgeType[] = [];
+
+const tableToTableNode = (
+    table: DBTable,
+    filteredSchemas?: string[]
+): TableNodeType => ({
+    id: table.id,
+    type: 'table',
+    position: { x: table.x, y: table.y },
+    data: {
+        table,
+        isOverlapping: false,
+    },
+    width: table.width ?? MIN_TABLE_SIZE,
+    hidden: !shouldShowTablesBySchemaFilter(table, filteredSchemas),
+});
+
+export interface CanvasProps {
+    initialTables: DBTable[];
+}
+
+export const Canvas: React.FC<CanvasProps> = ({ initialTables }) => {
+    const { getEdge, getInternalNode, fitView, getEdges, getNode } =
+        useReactFlow();
+    const [selectedTableIds, setSelectedTableIds] = useState<string[]>([]);
+    const [selectedRelationshipIds, setSelectedRelationshipIds] = useState<
+        string[]
+    >([]);
     const { toast } = useToast();
+    const { t } = useTranslation();
     const {
         tables,
         relationships,
         createRelationship,
+        createDependency,
         updateTablesState,
         removeRelationships,
+        removeDependencies,
         getField,
+        databaseType,
+        filteredSchemas,
+        events,
+        dependencies,
     } = useChartDB();
     const { showSidePanel } = useLayout();
+    const { effectiveTheme } = useTheme();
+    const { scrollAction, showDependenciesOnCanvas } = useLocalConfig();
+    const { showAlert } = useDialog();
     const { isMd: isDesktop } = useBreakpoint('md');
     const nodeTypes = useMemo(() => ({ table: TableNode }), []);
-    const edgeTypes = useMemo(() => ({ 'table-edge': TableEdge }), []);
+    const [highlightOverlappingTables, setHighlightOverlappingTables] =
+        useState(false);
 
-    const [nodes, setNodes, onNodesChange] =
-        useNodesState<TableNodeType>(initialNodes);
+    const [isInitialLoadingNodes, setIsInitialLoadingNodes] = useState(true);
+    const [overlapGraph, setOverlapGraph] =
+        useState<Graph<string>>(createGraph());
+
+    const [nodes, setNodes, onNodesChange] = useNodesState<TableNodeType>(
+        initialTables.map((table) => tableToTableNode(table, filteredSchemas))
+    );
     const [edges, setEdges, onEdgesChange] =
-        useEdgesState<TableEdgeType>(initialEdges);
+        useEdgesState<EdgeType>(initialEdges);
+
+    useEffect(() => {
+        setIsInitialLoadingNodes(true);
+    }, [initialTables]);
+
+    useEffect(() => {
+        const initialNodes = initialTables.map((table) =>
+            tableToTableNode(table, filteredSchemas)
+        );
+        if (equal(initialNodes, nodes)) {
+            setIsInitialLoadingNodes(false);
+        }
+    }, [initialTables, nodes, filteredSchemas]);
+
+    useEffect(() => {
+        if (!isInitialLoadingNodes) {
+            setTimeout(() => fitView({ maxZoom: 1, duration: 0 }), 0);
+        }
+    }, [isInitialLoadingNodes, fitView]);
 
     useEffect(() => {
         const targetIndexes: Record<string, number> = relationships.reduce(
@@ -66,35 +176,178 @@ export const Canvas: React.FC<CanvasProps> = () => {
             },
             {} as Record<string, number>
         );
-        setEdges(
-            relationships.map((relationship) => ({
-                id: relationship.id,
-                source: relationship.sourceTableId,
-                target: relationship.targetTableId,
-                sourceHandle: `${LEFT_HANDLE_ID_PREFIX}${relationship.sourceFieldId}`,
-                targetHandle: `${TARGET_ID_PREFIX}${targetIndexes[`${relationship.targetTableId}${relationship.targetFieldId}`]++}_${relationship.targetFieldId}`,
-                type: 'table-edge',
-                data: { relationship },
-            }))
+
+        const targetDepIndexes: Record<string, number> = dependencies.reduce(
+            (acc, dep) => {
+                acc[dep.tableId] = 0;
+                return acc;
+            },
+            {} as Record<string, number>
         );
-    }, [relationships, setEdges]);
+
+        setEdges([
+            ...relationships.map(
+                (relationship): RelationshipEdgeType => ({
+                    id: relationship.id,
+                    source: relationship.sourceTableId,
+                    target: relationship.targetTableId,
+                    sourceHandle: `${LEFT_HANDLE_ID_PREFIX}${relationship.sourceFieldId}`,
+                    targetHandle: `${TARGET_ID_PREFIX}${targetIndexes[`${relationship.targetTableId}${relationship.targetFieldId}`]++}_${relationship.targetFieldId}`,
+                    type: 'relationship-edge',
+                    data: { relationship },
+                })
+            ),
+            ...dependencies.map(
+                (dep): DependencyEdgeType => ({
+                    id: dep.id,
+                    source: dep.dependentTableId,
+                    target: dep.tableId,
+                    sourceHandle: `${TOP_SOURCE_HANDLE_ID_PREFIX}${dep.dependentTableId}`,
+                    targetHandle: `${TARGET_DEP_PREFIX}${targetDepIndexes[dep.tableId]++}_${dep.tableId}`,
+                    type: 'dependency-edge',
+                    data: { dependency: dep },
+                    hidden: !showDependenciesOnCanvas,
+                })
+            ),
+        ]);
+    }, [relationships, dependencies, setEdges, showDependenciesOnCanvas]);
+
+    useEffect(() => {
+        const selectedNodesIds = nodes
+            .filter((node) => node.selected)
+            .map((node) => node.id);
+
+        if (equal(selectedNodesIds, selectedTableIds)) {
+            return;
+        }
+
+        setSelectedTableIds(selectedNodesIds);
+    }, [nodes, setSelectedTableIds, selectedTableIds]);
+
+    useEffect(() => {
+        const selectedEdgesIds = edges
+            .filter((edge) => edge.selected)
+            .map((edge) => edge.id);
+
+        if (equal(selectedEdgesIds, selectedRelationshipIds)) {
+            return;
+        }
+
+        setSelectedRelationshipIds(selectedEdgesIds);
+    }, [edges, setSelectedRelationshipIds, selectedRelationshipIds]);
+
+    useEffect(() => {
+        const tablesSelectedEdges = getEdges()
+            .filter(
+                (edge) =>
+                    selectedTableIds.includes(edge.source) ||
+                    selectedTableIds.includes(edge.target)
+            )
+            .map((edge) => edge.id);
+
+        const allSelectedEdges = [
+            ...tablesSelectedEdges,
+            ...selectedRelationshipIds,
+        ];
+
+        setEdges((edges) =>
+            edges.map((edge): EdgeType => {
+                const selected = allSelectedEdges.includes(edge.id);
+
+                if (edge.type === 'dependency-edge') {
+                    const dependencyEdge = edge as DependencyEdgeType;
+                    return {
+                        ...dependencyEdge,
+                        data: {
+                            ...dependencyEdge.data!,
+                            highlighted: selected,
+                        },
+                        animated: selected,
+                        zIndex: selected ? 1 : 0,
+                    };
+                } else {
+                    const relationshipEdge = edge as RelationshipEdgeType;
+                    return {
+                        ...relationshipEdge,
+                        data: {
+                            ...relationshipEdge.data!,
+                            highlighted: selected,
+                        },
+                        animated: selected,
+                        zIndex: selected ? 1 : 0,
+                    };
+                }
+            })
+        );
+    }, [selectedRelationshipIds, selectedTableIds, setEdges, getEdges]);
 
     useEffect(() => {
         setNodes(
-            tables.map((table) => ({
-                id: table.id,
-                type: 'table',
-                position: { x: table.x, y: table.y },
-                data: {
-                    table,
-                },
-                width: table.width ?? 224,
-            }))
+            tables.map((table) => {
+                const isOverlapping =
+                    (overlapGraph.graph.get(table.id) ?? []).length > 0;
+                const node = tableToTableNode(table, filteredSchemas);
+
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        isOverlapping,
+                        highlightOverlappingTables,
+                    },
+                };
+            })
         );
-    }, [tables, setNodes]);
+    }, [
+        tables,
+        setNodes,
+        filteredSchemas,
+        overlapGraph.lastUpdated,
+        overlapGraph.graph,
+        highlightOverlappingTables,
+    ]);
+
+    const prevFilteredSchemas = useRef<string[] | undefined>(undefined);
+    useEffect(() => {
+        if (!equal(filteredSchemas, prevFilteredSchemas.current)) {
+            debounce(() => {
+                const overlappingTablesInDiagram = findOverlappingTables({
+                    tables: tables.filter((table) =>
+                        shouldShowTablesBySchemaFilter(table, filteredSchemas)
+                    ),
+                });
+                setOverlapGraph(overlappingTablesInDiagram);
+                fitView({
+                    duration: 500,
+                    padding: 0.1,
+                    maxZoom: 0.8,
+                });
+            }, 500)();
+            prevFilteredSchemas.current = filteredSchemas;
+        }
+    }, [filteredSchemas, fitView, tables]);
 
     const onConnectHandler = useCallback(
         async (params: AddEdgeParams) => {
+            if (
+                params.sourceHandle?.startsWith?.(
+                    TOP_SOURCE_HANDLE_ID_PREFIX
+                ) ||
+                params.sourceHandle?.startsWith?.(
+                    BOTTOM_SOURCE_HANDLE_ID_PREFIX
+                )
+            ) {
+                const tableId = params.target;
+                const dependentTableId = params.source;
+
+                createDependency({
+                    tableId,
+                    dependentTableId,
+                });
+
+                return;
+            }
+
             const sourceTableId = params.source;
             const targetTableId = params.target;
             const sourceFieldId = params.sourceHandle?.split('_')?.pop() ?? '';
@@ -106,70 +359,103 @@ export const Canvas: React.FC<CanvasProps> = () => {
                 return;
             }
 
-            if (sourceField.type.id !== targetField.type.id) {
+            if (
+                !areFieldTypesCompatible(
+                    sourceField.type,
+                    targetField.type,
+                    databaseType
+                )
+            ) {
                 toast({
-                    title: 'Field types do not match',
+                    title: 'Field types are not compatible',
                     variant: 'destructive',
                     description:
-                        'Relationships can only be created between fields of the same type',
+                        'Relationships can only be created between compatible field types',
                 });
                 return;
             }
 
-            const relationship = await createRelationship({
+            createRelationship({
                 sourceTableId,
                 targetTableId,
                 sourceFieldId,
                 targetFieldId,
             });
-            return setEdges((edges) =>
-                addEdge<TableEdgeType>(
-                    { ...params, data: { relationship }, id: relationship.id },
-                    edges
-                )
-            );
         },
-        [setEdges, createRelationship, getField, toast]
+        [createRelationship, createDependency, getField, toast, databaseType]
     );
 
-    const onEdgesChangeHandler: OnEdgesChange<TableEdgeType> = useCallback(
+    const onEdgesChangeHandler: OnEdgesChange<EdgeType> = useCallback(
         (changes) => {
             const removeChanges: NodeRemoveChange[] = changes.filter(
                 (change) => change.type === 'remove'
             ) as NodeRemoveChange[];
 
-            const relationshipsToRemove: string[] = removeChanges
-                .map(
-                    (change) =>
-                        (getEdge(change.id) as TableEdgeType)?.data
-                            ?.relationship?.id
-                )
-                .filter((id) => !!id) as string[];
+            const edgesToRemove = removeChanges
+                .map((change) => getEdge(change.id) as EdgeType | undefined)
+                .filter((edge) => !!edge);
+
+            const relationshipsToRemove: string[] = (
+                edgesToRemove.filter(
+                    (edge) => edge?.type === 'relationship-edge'
+                ) as RelationshipEdgeType[]
+            ).map((edge) => edge?.data?.relationship?.id as string);
+
+            const dependenciesToRemove: string[] = (
+                edgesToRemove.filter(
+                    (edge) => edge?.type === 'dependency-edge'
+                ) as DependencyEdgeType[]
+            ).map((edge) => edge?.data?.dependency?.id as string);
 
             if (relationshipsToRemove.length > 0) {
                 removeRelationships(relationshipsToRemove);
             }
 
-            const selectionChanges = changes.filter(
-                (change) => change.type === 'select'
-            );
-
-            if (selectionChanges.length > 0) {
-                setEdges((edges) =>
-                    edges.map((edge) => {
-                        const selected = selectionChanges.some(
-                            (change) => change.id === edge.id && change.selected
-                        );
-                        edge.zIndex = selected ? 1 : 0;
-                        edge.animated = selected;
-                        return edge;
-                    })
-                );
+            if (dependenciesToRemove.length > 0) {
+                removeDependencies(dependenciesToRemove);
             }
 
             return onEdgesChange(changes);
         },
-        [getEdge, onEdgesChange, removeRelationships, setEdges]
+        [getEdge, onEdgesChange, removeRelationships, removeDependencies]
+    );
+
+    const updateOverlappingGraphOnChanges = useCallback(
+        ({
+            positionChanges,
+            sizeChanges,
+        }: {
+            positionChanges: NodePositionChange[];
+            sizeChanges: NodeDimensionChange[];
+        }) => {
+            if (positionChanges.length > 0 || sizeChanges.length > 0) {
+                let newOverlappingGraph: Graph<string> = overlapGraph;
+
+                for (const change of positionChanges) {
+                    newOverlappingGraph = findTableOverlapping(
+                        { node: getNode(change.id) as TableNodeType },
+                        { nodes: nodes.filter((node) => !node.hidden) },
+                        newOverlappingGraph
+                    );
+                }
+
+                for (const change of sizeChanges) {
+                    newOverlappingGraph = findTableOverlapping(
+                        { node: getNode(change.id) as TableNodeType },
+                        { nodes: nodes.filter((node) => !node.hidden) },
+                        newOverlappingGraph
+                    );
+                }
+
+                setOverlapGraph(newOverlappingGraph);
+            }
+        },
+        [nodes, overlapGraph, setOverlapGraph, getNode]
+    );
+
+    const updateOverlappingGraphOnChangesDebounced = debounce(
+        updateOverlappingGraphOnChanges,
+        200
     );
 
     const onNodesChangeHandler: OnNodesChange<TableNodeType> = useCallback(
@@ -177,6 +463,7 @@ export const Canvas: React.FC<CanvasProps> = () => {
             const positionChanges: NodePositionChange[] = changes.filter(
                 (change) => change.type === 'position' && !change.dragging
             ) as NodePositionChange[];
+
             const removeChanges: NodeRemoveChange[] = changes.filter(
                 (change) => change.type === 'remove'
             ) as NodeRemoveChange[];
@@ -229,92 +516,291 @@ export const Canvas: React.FC<CanvasProps> = () => {
                 );
             }
 
+            updateOverlappingGraphOnChangesDebounced({
+                positionChanges,
+                sizeChanges,
+            });
+
             return onNodesChange(changes);
         },
-        [onNodesChange, updateTablesState]
+        [
+            onNodesChange,
+            updateTablesState,
+            updateOverlappingGraphOnChangesDebounced,
+        ]
     );
+
+    const eventConsumer = useCallback(
+        (event: ChartDBEvent) => {
+            let newOverlappingGraph: Graph<string> = overlapGraph;
+            if (event.action === 'add_tables') {
+                for (const table of event.data.tables) {
+                    newOverlappingGraph = findTableOverlapping(
+                        { node: getNode(table.id) as TableNodeType },
+                        { nodes: nodes.filter((node) => !node.hidden) },
+                        overlapGraph
+                    );
+                }
+
+                setOverlapGraph(newOverlappingGraph);
+            } else if (event.action === 'remove_tables') {
+                for (const tableId of event.data.tableIds) {
+                    newOverlappingGraph = removeVertex(
+                        newOverlappingGraph,
+                        tableId
+                    );
+                }
+
+                setOverlapGraph(newOverlappingGraph);
+            } else if (
+                event.action === 'update_table' &&
+                event.data.table.width
+            ) {
+                const node = getNode(event.data.id) as TableNodeType;
+
+                const measured = {
+                    ...node.measured,
+                    width: event.data.table.width,
+                };
+
+                newOverlappingGraph = findTableOverlapping(
+                    {
+                        node: {
+                            ...node,
+                            measured,
+                        },
+                    },
+                    { nodes: nodes.filter((node) => !node.hidden) },
+                    overlapGraph
+                );
+                setOverlapGraph(newOverlappingGraph);
+            } else if (
+                event.action === 'add_field' ||
+                event.action === 'remove_field'
+            ) {
+                const node = getNode(event.data.tableId) as TableNodeType;
+
+                const measured = {
+                    ...(node.measured ?? {}),
+                    height: calcTableHeight(event.data.fields.length),
+                };
+
+                newOverlappingGraph = findTableOverlapping(
+                    {
+                        node: {
+                            ...node,
+                            measured,
+                        },
+                    },
+                    { nodes: nodes.filter((node) => !node.hidden) },
+                    overlapGraph
+                );
+                setOverlapGraph(newOverlappingGraph);
+            } else if (event.action === 'load_diagram') {
+                const diagramTables = event.data.diagram.tables ?? [];
+                const overlappingTablesInDiagram = findOverlappingTables({
+                    tables: diagramTables.filter((table) =>
+                        shouldShowTablesBySchemaFilter(table, filteredSchemas)
+                    ),
+                });
+                setOverlapGraph(overlappingTablesInDiagram);
+            }
+        },
+        [overlapGraph, setOverlapGraph, getNode, nodes, filteredSchemas]
+    );
+
+    events.useSubscription(eventConsumer);
 
     const isLoadingDOM =
         tables.length > 0 ? !getInternalNode(tables[0].id) : false;
 
-    return (
-        <div className="flex h-full">
-            <ReactFlow
-                className="canvas-cursor-default nodes-animated"
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChangeHandler}
-                onEdgesChange={onEdgesChangeHandler}
-                maxZoom={5}
-                minZoom={0.1}
-                onConnect={onConnectHandler}
-                proOptions={{
-                    hideAttribution: true,
-                }}
-                fitView={false}
-                nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
-                defaultEdgeOptions={{
-                    animated: false,
-                    type: 'table-edge',
-                }}
-                panOnScroll
-            >
-                {isLoadingDOM ? (
-                    <Controls
-                        position="top-center"
-                        orientation="horizontal"
-                        showZoom={false}
-                        showFitView={false}
-                        showInteractive={false}
-                        className="!shadow-none"
-                    >
-                        <Badge variant="default" className="bg-pink-600">
-                            Loading diagram...
-                        </Badge>
-                    </Controls>
-                ) : null}
+    const reorderTables = useCallback(() => {
+        const newTables = adjustTablePositions({
+            relationships,
+            tables: tables.filter((table) =>
+                shouldShowTablesBySchemaFilter(table, filteredSchemas)
+            ),
+            mode: 'all', // Use 'all' mode for manual reordering
+        });
 
-                {!isDesktop ? (
+        const updatedOverlapGraph = findOverlappingTables({
+            tables: newTables,
+        });
+
+        updateTablesState((currentTables) =>
+            currentTables.map((table) => {
+                const newTable = newTables.find((t) => t.id === table.id);
+                return {
+                    id: table.id,
+                    x: newTable?.x ?? table.x,
+                    y: newTable?.y ?? table.y,
+                };
+            })
+        );
+
+        setOverlapGraph(updatedOverlapGraph);
+    }, [filteredSchemas, relationships, tables, updateTablesState]);
+
+    const showReorderConfirmation = useCallback(() => {
+        showAlert({
+            title: t('reorder_diagram_alert.title'),
+            description: t('reorder_diagram_alert.description'),
+            actionLabel: t('reorder_diagram_alert.reorder'),
+            closeLabel: t('reorder_diagram_alert.cancel'),
+            onAction: reorderTables,
+        });
+    }, [t, showAlert, reorderTables]);
+
+    const hasOverlappingTables = useMemo(
+        () =>
+            Array.from(overlapGraph.graph).some(
+                ([, value]) => value.length > 0
+            ),
+        [overlapGraph]
+    );
+
+    const pulseOverlappingTables = useCallback(() => {
+        setHighlightOverlappingTables(true);
+        setTimeout(() => setHighlightOverlappingTables(false), 600);
+    }, []);
+
+    return (
+        <CanvasContextMenu>
+            <div className="relative flex h-full">
+                <ReactFlow
+                    colorMode={effectiveTheme}
+                    className="canvas-cursor-default nodes-animated"
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChangeHandler}
+                    onEdgesChange={onEdgesChangeHandler}
+                    maxZoom={5}
+                    minZoom={0.1}
+                    onConnect={onConnectHandler}
+                    proOptions={{
+                        hideAttribution: true,
+                    }}
+                    fitView={false}
+                    nodeTypes={nodeTypes}
+                    edgeTypes={edgeTypes}
+                    defaultEdgeOptions={{
+                        animated: false,
+                        type: 'relationship-edge',
+                    }}
+                    panOnScroll={scrollAction === 'pan'}
+                >
                     <Controls
-                        position="bottom-left"
+                        position="top-left"
+                        showZoom={false}
+                        showFitView={false}
+                        showInteractive={false}
+                        className="!shadow-none"
+                    >
+                        <div className="flex flex-col items-center gap-2 md:flex-row">
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <span>
+                                        <Button
+                                            variant="secondary"
+                                            className="size-8 p-1 shadow-none"
+                                            onClick={showReorderConfirmation}
+                                        >
+                                            <LayoutGrid className="size-4" />
+                                        </Button>
+                                    </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {t('toolbar.reorder_diagram')}
+                                </TooltipContent>
+                            </Tooltip>
+
+                            <div
+                                className={`transition-opacity duration-300 ease-in-out ${
+                                    hasOverlappingTables
+                                        ? 'opacity-100'
+                                        : 'opacity-0'
+                                }`}
+                            >
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <span>
+                                            <Button
+                                                variant="default"
+                                                className="size-8 p-1 shadow-none"
+                                                onClick={pulseOverlappingTables}
+                                            >
+                                                <AlertTriangle className="size-4 text-white" />
+                                            </Button>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        {t(
+                                            'toolbar.highlight_overlapping_tables'
+                                        )}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </div>
+                        </div>
+                    </Controls>
+                    {isLoadingDOM ? (
+                        <Controls
+                            position="top-center"
+                            orientation="horizontal"
+                            showZoom={false}
+                            showFitView={false}
+                            showInteractive={false}
+                            className="!shadow-none"
+                        >
+                            <Badge
+                                variant="default"
+                                className="bg-pink-600 text-white"
+                            >
+                                {t('loading_diagram')}
+                            </Badge>
+                        </Controls>
+                    ) : null}
+
+                    {!isDesktop ? (
+                        <Controls
+                            position="bottom-left"
+                            orientation="horizontal"
+                            showZoom={false}
+                            showFitView={false}
+                            showInteractive={false}
+                            className="!shadow-none"
+                        >
+                            <Button
+                                className="size-11 bg-pink-600 p-2 hover:bg-pink-500"
+                                onClick={showSidePanel}
+                            >
+                                <Pencil />
+                            </Button>
+                        </Controls>
+                    ) : null}
+                    <Controls
+                        position={isDesktop ? 'bottom-center' : 'top-center'}
                         orientation="horizontal"
                         showZoom={false}
                         showFitView={false}
                         showInteractive={false}
                         className="!shadow-none"
                     >
-                        <Button
-                            className="size-11 bg-pink-600 p-2 hover:bg-pink-500"
-                            onClick={showSidePanel}
-                        >
-                            <Pencil />
-                        </Button>
+                        <Toolbar />
                     </Controls>
-                ) : null}
-                <Controls
-                    position={isDesktop ? 'bottom-center' : 'top-center'}
-                    orientation="horizontal"
-                    showZoom={false}
-                    showFitView={false}
-                    showInteractive={false}
-                    className="!shadow-none"
-                >
-                    <Toolbar />
-                </Controls>
-                <MiniMap
-                    style={{
-                        width: isDesktop ? 100 : 60,
-                        height: isDesktop ? 100 : 60,
-                    }}
-                />
-                <Background
-                    variant={BackgroundVariant.Dots}
-                    gap={16}
-                    size={1}
-                    bgColor="#ffffff"
-                />
-            </ReactFlow>
-        </div>
+                    <MiniMap
+                        style={{
+                            width: isDesktop ? 100 : 60,
+                            height: isDesktop ? 100 : 60,
+                        }}
+                    />
+                    <Background
+                        variant={BackgroundVariant.Dots}
+                        gap={16}
+                        size={1}
+                    />
+                </ReactFlow>
+                <MarkerDefinitions />
+            </div>
+        </CanvasContextMenu>
     );
 };

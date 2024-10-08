@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { Accordion } from '@/components/accordion/accordion';
 import { TableListItem } from './table-list-item/table-list-item';
-import { DBTable } from '@/lib/domain/db-table';
+import type { DBTable } from '@/lib/domain/db-table';
 import { useLayout } from '@/hooks/use-layout';
 
 export interface TableListProps {
@@ -10,28 +10,37 @@ export interface TableListProps {
 
 export const TableList: React.FC<TableListProps> = ({ tables }) => {
     const { openTableFromSidebar, openedTableInSidebar } = useLayout();
-    const refs = tables.reduce(
-        (acc, table) => {
-            acc[table.id] = React.createRef();
-            return acc;
-        },
-        {} as Record<string, React.RefObject<HTMLDivElement>>
+    const lastOpenedTable = React.useRef<string | null>(null);
+    const refs = useMemo(
+        () =>
+            tables.reduce(
+                (acc, table) => {
+                    acc[table.id] = React.createRef();
+                    return acc;
+                },
+                {} as Record<string, React.RefObject<HTMLDivElement>>
+            ),
+        [tables]
     );
 
     const scrollToTable = useCallback(
         (id: string) =>
             refs[id]?.current?.scrollIntoView({
                 behavior: 'smooth',
-                block: 'center',
+                block: 'start',
             }),
         [refs]
     );
 
-    useEffect(() => {
-        if (openedTableInSidebar) {
+    const handleScrollToTable = useCallback(() => {
+        if (
+            openedTableInSidebar &&
+            lastOpenedTable.current !== openedTableInSidebar
+        ) {
+            lastOpenedTable.current = openedTableInSidebar;
             scrollToTable(openedTableInSidebar);
         }
-    }, [openedTableInSidebar, scrollToTable]);
+    }, [scrollToTable, openedTableInSidebar]);
 
     return (
         <Accordion
@@ -40,6 +49,7 @@ export const TableList: React.FC<TableListProps> = ({ tables }) => {
             className="flex w-full flex-col gap-1"
             value={openedTableInSidebar}
             onValueChange={openTableFromSidebar}
+            onAnimationEnd={handleScrollToTable}
         >
             {tables.map((table) => (
                 <TableListItem

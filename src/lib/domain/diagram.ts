@@ -1,16 +1,13 @@
-import { DatabaseMetadata } from '../data/import-metadata/metadata-types/database-metadata';
-import { DatabaseEdition } from './database-edition';
+import type { DatabaseMetadata } from '../data/import-metadata/metadata-types/database-metadata';
+import type { DatabaseEdition } from './database-edition';
 import { DatabaseType } from './database-type';
-import {
-    DBRelationship,
-    createRelationshipsFromMetadata,
-} from './db-relationship';
-import {
-    DBTable,
-    adjustTablePositions,
-    createTablesFromMetadata,
-} from './db-table';
-import { generateId } from '@/lib/utils';
+import type { DBDependency } from './db-dependency';
+import { createDependenciesFromMetadata } from './db-dependency';
+import type { DBRelationship } from './db-relationship';
+import { createRelationshipsFromMetadata } from './db-relationship';
+import type { DBTable } from './db-table';
+import { adjustTablePositions, createTablesFromMetadata } from './db-table';
+import { generateDiagramId } from '@/lib/utils';
 export interface Diagram {
     id: string;
     name: string;
@@ -18,11 +15,12 @@ export interface Diagram {
     databaseEdition?: DatabaseEdition;
     tables?: DBTable[];
     relationships?: DBRelationship[];
+    dependencies?: DBDependency[];
     createdAt: Date;
     updatedAt: Date;
 }
 
-export const loadFromDatabaseMetadata = ({
+export const loadFromDatabaseMetadata = async ({
     databaseType,
     databaseMetadata,
     diagramNumber,
@@ -30,9 +28,9 @@ export const loadFromDatabaseMetadata = ({
 }: {
     databaseType: DatabaseType;
     databaseMetadata: DatabaseMetadata;
-    diagramNumber: number;
+    diagramNumber?: number;
     databaseEdition?: DatabaseEdition;
-}): Diagram => {
+}): Promise<Diagram> => {
     const {
         tables: tableInfos,
         pk_info: primaryKeys,
@@ -49,6 +47,7 @@ export const loadFromDatabaseMetadata = ({
         indexes,
         primaryKeys,
         views,
+        databaseType,
     });
 
     // First pass: Create relationships
@@ -57,8 +56,19 @@ export const loadFromDatabaseMetadata = ({
         tables,
     });
 
+    // First pass: Create dependencies
+    const dependencies = await createDependenciesFromMetadata({
+        views,
+        tables,
+        databaseType,
+    });
+
     // Second pass: Adjust table positions based on relationships
-    const adjustedTables = adjustTablePositions({ tables, relationships });
+    const adjustedTables = adjustTablePositions({
+        tables,
+        relationships,
+        mode: 'perSchema',
+    });
 
     const sortedTables = adjustedTables.sort((a, b) => {
         if (a.isView === b.isView) {
@@ -70,14 +80,17 @@ export const loadFromDatabaseMetadata = ({
     });
 
     return {
-        id: generateId(),
-        name:
-            `${databaseMetadata.database_name}-db` ||
-            `Diagram ${diagramNumber}`,
+        id: generateDiagramId(),
+        name: databaseMetadata.database_name
+            ? `${databaseMetadata.database_name}-db`
+            : diagramNumber
+              ? `Diagram ${diagramNumber}`
+              : 'New Diagram',
         databaseType: databaseType ?? DatabaseType.GENERIC,
         databaseEdition,
         tables: sortedTables,
         relationships,
+        dependencies,
         createdAt: new Date(),
         updatedAt: new Date(),
     };

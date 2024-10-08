@@ -15,6 +15,7 @@ export const getMySQLQuery = (
         kcu.table_name,
         kcu.column_name as fk_column,
         kcu.constraint_name as foreign_key_name,
+        kcu.referenced_table_schema as reference_schema,
         kcu.referenced_table_name as reference_table,
         kcu.referenced_column_name as reference_column,
         CONCAT('FOREIGN KEY (', kcu.column_name, ') REFERENCES ',
@@ -36,6 +37,7 @@ export const getMySQLQuery = (
                                     '","table":"',table_name,
                                     '","column":"', IFNULL(fk_column, ''),
                                                 '","foreign_key_name":"', IFNULL(foreign_key_name, ''),
+                                                '","reference_schema":"', IFNULL(reference_schema, ''),
                                                 '","reference_table":"', IFNULL(reference_table, ''),
                                                 '","reference_column":"', IFNULL(reference_column, ''),
                                                 '","fk_def":"', IFNULL(fk_def, ''),
@@ -46,8 +48,12 @@ export const getMySQLQuery = (
                FROM (SELECT TABLE_SCHEMA,
                             TABLE_NAME AS pk_table,
                             COLUMN_NAME AS pk_column,
-                            CONCAT('PRIMARY KEY (', GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ', '), ')') AS pk_def
-                       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                            (SELECT CONCAT('PRIMARY KEY (', GROUP_CONCAT(inc.COLUMN_NAME ORDER BY inc.ORDINAL_POSITION SEPARATOR ', '), ')')
+                               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as inc
+                               WHERE inc.CONSTRAINT_NAME = 'PRIMARY' and
+                                     outc.TABLE_SCHEMA = inc.TABLE_SCHEMA and
+                             		 outc.TABLE_NAME = inc.TABLE_NAME) AS pk_def
+                       FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as outc
                        WHERE CONSTRAINT_NAME = 'PRIMARY'
                        GROUP BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
                        ORDER BY TABLE_SCHEMA, TABLE_NAME, MIN(ORDINAL_POSITION)) AS pk
@@ -104,7 +110,8 @@ export const getMySQLQuery = (
                                                       '","index_type":"', LOWER(indexes.index_type),
                                                       '","cardinality":', indexes.cardinality,
                                                       ',"direction":"', (CASE WHEN indexes.collation = 'D' THEN 'desc' ELSE 'asc' END),
-                                                      '","unique":', IF(indexes.non_unique = 1, 'false', 'true'), '}')))))
+                                                      '","column_position":', indexes.seq_in_index,
+                                                      ',"unique":', IF(indexes.non_unique = 1, 'false', 'true'), '}')))))
 ), tbls as
 (
   (SELECT (@tbls:=NULL),
@@ -126,7 +133,7 @@ export const getMySQLQuery = (
                    AND table_schema = DATABASE()
                    AND (0x00) IN (@views:=CONCAT_WS(',', @views, CONCAT('{', '"schema":"', \`TABLE_SCHEMA\`, '",',
                                                    '"view_name":"', \`TABLE_NAME\`, '",',
-                                                   '"definition":"', REPLACE(REPLACE(TO_BASE64(VIEW_DEFINITION), ' ', ''), '\n', ''), '"}'))) ) )
+                                                   '"view_definition":"', REPLACE(REPLACE(TO_BASE64(VIEW_DEFINITION), ' ', ''), '\n', ''), '"}'))) ) )
 )
 (SELECT CAST(CONCAT('{"fk_info": [',IFNULL(@fk_info,''),
                 '], "pk_info": [', IFNULL(@pk_info, ''),
@@ -147,6 +154,7 @@ export const getMySQLQuery = (
                '","column":"', IFNULL(fk.fk_column, ''),
                '","foreign_key_name":"', IFNULL(fk.foreign_key_name, ''),
                '","reference_table":"', IFNULL(fk.reference_table, ''),
+               '","reference_schema":"', IFNULL(fk.reference_schema, ''),
                '","reference_column":"', IFNULL(fk.reference_column, ''),
                '","fk_def":"', IFNULL(fk.fk_def, ''), '"}')
     ) FROM (
@@ -154,6 +162,7 @@ export const getMySQLQuery = (
                kcu.table_name,
                kcu.column_name AS fk_column,
                kcu.constraint_name AS foreign_key_name,
+               kcu.referenced_table_schema as reference_schema,
                kcu.referenced_table_name AS reference_table,
                kcu.referenced_column_name AS reference_column,
                CONCAT('FOREIGN KEY (', kcu.column_name, ') REFERENCES ',
@@ -178,10 +187,16 @@ export const getMySQLQuery = (
         SELECT TABLE_SCHEMA,
                TABLE_NAME AS pk_table,
                COLUMN_NAME AS pk_column,
-               CONCAT('PRIMARY KEY (', GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR ', '), ')') AS pk_def
-        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+               (SELECT CONCAT('PRIMARY KEY (', GROUP_CONCAT(inc.COLUMN_NAME ORDER BY inc.ORDINAL_POSITION SEPARATOR ', '), ')')
+                               FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as inc
+                               WHERE inc.CONSTRAINT_NAME = 'PRIMARY' and
+                                     outc.TABLE_SCHEMA = inc.TABLE_SCHEMA and
+                                     outc.TABLE_NAME = inc.TABLE_NAME) AS pk_def
+        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE as outc
         WHERE CONSTRAINT_NAME = 'PRIMARY'
-        GROUP BY TABLE_SCHEMA, TABLE_NAME
+              and table_schema LIKE IFNULL(NULL, '%')
+              AND table_schema = DATABASE()
+        GROUP BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME
     ) AS pk), ''),
     '], "columns": [',
     IFNULL((SELECT GROUP_CONCAT(
@@ -230,7 +245,8 @@ export const getMySQLQuery = (
                '","index_type":"', LOWER(idx.index_type),
                '","cardinality":', idx.cardinality,
                ',"direction":"', (CASE WHEN idx.collation = 'D' THEN 'desc' ELSE 'asc' END),
-               '","unique":', IF(idx.non_unique = 1, 'false', 'true'), '}')
+               '","column_position":', idx.seq_in_index,
+               ',"unique":', IF(idx.non_unique = 1, 'false', 'true'), '}')
     ) FROM (
         SELECT indexes.table_schema,
                indexes.table_name,
@@ -239,7 +255,8 @@ export const getMySQLQuery = (
                LOWER(indexes.index_type) AS index_type,
                indexes.cardinality,
                indexes.collation,
-               indexes.non_unique
+               indexes.non_unique,
+               indexes.seq_in_index
         FROM information_schema.statistics indexes
         WHERE indexes.table_schema = DATABASE()
     ) AS idx), ''),
@@ -265,11 +282,11 @@ export const getMySQLQuery = (
     IFNULL((SELECT GROUP_CONCAT(
         CONCAT('{"schema":"', cast(vws.TABLE_SCHEMA as CHAR),
                '","view_name":"', vws.view_name,
-               '","definition":"', definition, '"}')
+               '","view_definition":"', view_definition, '"}')
     ) FROM (
         SELECT \`TABLE_SCHEMA\`,
                \`TABLE_NAME\` AS view_name,
-               '' AS definition
+               REPLACE(REPLACE(TO_BASE64(\`VIEW_DEFINITION\`), ' ', ''), '\n', '') AS view_definition
         FROM information_schema.views vws
         WHERE vws.table_schema = DATABASE()
     ) AS vws), ''),

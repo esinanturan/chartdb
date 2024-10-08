@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Card, CardContent } from '@/components/card/card';
 import { ZoomIn, ZoomOut, Save, Redo, Undo, Scan } from 'lucide-react';
 import { Separator } from '@/components/separator/separator';
@@ -12,6 +12,7 @@ import {
     TooltipContent,
 } from '@/components/tooltip/tooltip';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/button/button';
 
 const convertToPercentage = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -46,9 +47,13 @@ export const Toolbar: React.FC<ToolbarProps> = () => {
         });
     };
 
-    const showAll = () => {
-        fitView({ duration: zoomDuration });
-    };
+    const showAll = useCallback(() => {
+        fitView({
+            duration: 500,
+            padding: 0.1,
+            maxZoom: 0.8,
+        });
+    }, [fitView]);
 
     return (
         <div className="px-1">
@@ -86,7 +91,13 @@ export const Toolbar: React.FC<ToolbarProps> = () => {
                         </TooltipTrigger>
                         <TooltipContent>{t('toolbar.zoom_out')}</TooltipContent>
                     </Tooltip>
-                    <ToolbarButton onClick={resetZoom}>{zoom}</ToolbarButton>
+                    <Button
+                        variant="ghost"
+                        onClick={resetZoom}
+                        className="w-[60px] p-2 hover:bg-primary-foreground"
+                    >
+                        {zoom}
+                    </Button>
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <span>

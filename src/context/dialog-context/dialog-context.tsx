@@ -1,7 +1,10 @@
 import { createContext } from 'react';
 import { emptyFn } from '@/lib/utils';
-import { DatabaseType } from '@/lib/domain/database-type';
-import { BaseAlertDialogProps } from '@/dialogs/base-alert-dialog/base-alert-dialog';
+import type { BaseAlertDialogProps } from '@/dialogs/base-alert-dialog/base-alert-dialog';
+import type { TableSchemaDialogProps } from '@/dialogs/table-schema-dialog/table-schema-dialog';
+import type { ImportDatabaseDialogProps } from '@/dialogs/import-database-dialog/import-database-dialog';
+import type { ExportSQLDialogProps } from '@/dialogs/export-sql-dialog/export-sql-dialog';
+import type { ExportImageDialogProps } from '@/dialogs/export-image-dialog/export-image-dialog';
 
 export interface DialogContext {
     // Create diagram dialog
@@ -13,12 +16,38 @@ export interface DialogContext {
     closeOpenDiagramDialog: () => void;
 
     // Export SQL dialog
-    openExportSQLDialog: (params: { targetDatabaseType: DatabaseType }) => void;
+    openExportSQLDialog: (params: Omit<ExportSQLDialogProps, 'dialog'>) => void;
     closeExportSQLDialog: () => void;
 
     // Alert dialog
     showAlert: (params: BaseAlertDialogProps) => void;
     closeAlert: () => void;
+
+    // Create relationship dialog
+    openCreateRelationshipDialog: () => void;
+    closeCreateRelationshipDialog: () => void;
+
+    // Import database dialog
+    openImportDatabaseDialog: (
+        params: Omit<ImportDatabaseDialogProps, 'dialog'>
+    ) => void;
+    closeImportDatabaseDialog: () => void;
+
+    // Change table schema dialog
+    openTableSchemaDialog: (
+        params: Omit<TableSchemaDialogProps, 'dialog'>
+    ) => void;
+    closeTableSchemaDialog: () => void;
+
+    // Star us dialog
+    openStarUsDialog: () => void;
+    closeStarUsDialog: () => void;
+
+    // Export image dialog
+    openExportImageDialog: (
+        params: Omit<ExportImageDialogProps, 'dialog'>
+    ) => void;
+    closeExportImageDialog: () => void;
 }
 
 export const dialogContext = createContext<DialogContext>({
@@ -30,4 +59,14 @@ export const dialogContext = createContext<DialogContext>({
     closeExportSQLDialog: emptyFn,
     closeAlert: emptyFn,
     showAlert: emptyFn,
+    closeCreateRelationshipDialog: emptyFn,
+    openCreateRelationshipDialog: emptyFn,
+    openImportDatabaseDialog: emptyFn,
+    closeImportDatabaseDialog: emptyFn,
+    openTableSchemaDialog: emptyFn,
+    closeTableSchemaDialog: emptyFn,
+    openStarUsDialog: emptyFn,
+    closeStarUsDialog: emptyFn,
+    openExportImageDialog: emptyFn,
+    closeExportImageDialog: emptyFn,
 });

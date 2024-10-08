@@ -1,25 +1,22 @@
-import React, { useMemo } from 'react';
-import {
-    Edge,
-    EdgeProps,
-    getSmoothStepPath,
-    Position,
-    useReactFlow,
-} from '@xyflow/react';
-import { DBRelationship } from '@/lib/domain/db-relationship';
-import { RIGHT_HANDLE_ID_PREFIX } from './table-node-field';
+import React, { useCallback, useMemo } from 'react';
+import type { Edge, EdgeProps } from '@xyflow/react';
+import { getSmoothStepPath, Position, useReactFlow } from '@xyflow/react';
+import type { DBRelationship } from '@/lib/domain/db-relationship';
+import { RIGHT_HANDLE_ID_PREFIX } from './table-node/table-node-field';
 import { useChartDB } from '@/hooks/use-chartdb';
 import { useLayout } from '@/hooks/use-layout';
 import { cn } from '@/lib/utils';
+import { getCardinalityMarkerId } from './canvas-utils';
 
-export type TableEdgeType = Edge<
+export type RelationshipEdgeType = Edge<
     {
         relationship: DBRelationship;
+        highlighted?: boolean;
     },
-    'table-edge'
+    'relationship-edge'
 >;
 
-export const TableEdge: React.FC<EdgeProps<TableEdgeType>> = ({
+export const RelationshipEdge: React.FC<EdgeProps<RelationshipEdgeType>> = ({
     id,
     sourceX,
     sourceY,
@@ -28,24 +25,33 @@ export const TableEdge: React.FC<EdgeProps<TableEdgeType>> = ({
     source,
     target,
     selected,
+    data,
 }) => {
     const { getInternalNode, getEdge } = useReactFlow();
     const { openRelationshipFromSidebar, selectSidebarSection } = useLayout();
 
     const { relationships } = useChartDB();
 
-    const openRelationshipInEditor = () => {
+    const relationship = data?.relationship;
+
+    const openRelationshipInEditor = useCallback(() => {
         selectSidebarSection('relationships');
         openRelationshipFromSidebar(id);
-    };
+    }, [id, openRelationshipFromSidebar, selectSidebarSection]);
 
-    const edgeNumber = relationships
-        .filter(
-            (relationship) =>
-                relationship.targetTableId === target &&
-                relationship.sourceTableId === source
-        )
-        .findIndex((relationship) => relationship.id === id);
+    const edgeNumber = useMemo(
+        () =>
+            relationships
+                .filter(
+                    (relationship) =>
+                        (relationship.targetTableId === target &&
+                            relationship.sourceTableId === source) ||
+                        (relationship.targetTableId === source &&
+                            relationship.sourceTableId === target)
+                )
+                .findIndex((relationship) => relationship.id === id),
+        [relationships, id, source, target]
+    );
 
     const sourceNode = getInternalNode(source);
     const targetNode = getInternalNode(target);
@@ -59,9 +65,9 @@ export const TableEdge: React.FC<EdgeProps<TableEdgeType>> = ({
 
     const sourceWidth = sourceNode?.measured.width ?? 0;
     const sourceLeftX =
-        sourceHandle === 'left' ? sourceX - 1 : sourceX - sourceWidth - 10;
+        sourceHandle === 'left' ? sourceX + 3 : sourceX - sourceWidth - 10;
     const sourceRightX =
-        sourceHandle === 'left' ? sourceX + sourceWidth + 10 : sourceX;
+        sourceHandle === 'left' ? sourceX + sourceWidth + 9 : sourceX;
 
     const targetWidth = targetNode?.measured.width ?? 0;
     const targetLeftX = targetX - 1;
@@ -125,15 +131,35 @@ export const TableEdge: React.FC<EdgeProps<TableEdgeType>> = ({
         ]
     );
 
+    const sourceMarker = useMemo(
+        () =>
+            getCardinalityMarkerId({
+                cardinality: relationship?.sourceCardinality ?? 'one',
+                selected: selected ?? false,
+                side: sourceSide as 'left' | 'right',
+            }),
+        [relationship?.sourceCardinality, selected, sourceSide]
+    );
+    const targetMarker = useMemo(
+        () =>
+            getCardinalityMarkerId({
+                cardinality: relationship?.targetCardinality ?? 'one',
+                selected: selected ?? false,
+                side: targetSide as 'left' | 'right',
+            }),
+        [relationship?.targetCardinality, selected, targetSide]
+    );
     return (
         <>
             <path
                 id={id}
                 d={edgePath}
+                markerStart={`url(#${sourceMarker})`}
+                markerEnd={`url(#${targetMarker})`}
                 fill="none"
                 className={cn([
                     'react-flow__edge-path',
-                    `!stroke-2 ${selected ? '!stroke-pink-600' : '!stroke-slate-300'}`,
+                    `!stroke-2 ${selected ? '!stroke-pink-600' : '!stroke-slate-400'}`,
                 ])}
                 onClick={(e) => {
                     if (e.detail === 2) {
@@ -158,6 +184,8 @@ export const TableEdge: React.FC<EdgeProps<TableEdgeType>> = ({
         // <BaseEdge
         //     id={id}
         //     path={edgePath}
+        //     markerStart="url(#cardinality_one)"
+        //     markerEnd="url(#cardinality_one)"
         //     className={`!stroke-2 ${selected ? '!stroke-slate-500' : '!stroke-slate-300'}`}
         // />
     );

@@ -1,9 +1,10 @@
 import { createContext } from 'react';
-import { Diagram } from '@/lib/domain/diagram';
+import type { Diagram } from '@/lib/domain/diagram';
 import { emptyFn } from '@/lib/utils';
-import { DBRelationship } from '@/lib/domain/db-relationship';
-import { DBTable } from '@/lib/domain/db-table';
-import { ChartDBConfig } from '@/lib/domain/config';
+import type { DBRelationship } from '@/lib/domain/db-relationship';
+import type { DBTable } from '@/lib/domain/db-table';
+import type { ChartDBConfig } from '@/lib/domain/config';
+import type { DBDependency } from '@/lib/domain/db-dependency';
 
 export interface StorageContext {
     // Config operations
@@ -21,6 +22,7 @@ export interface StorageContext {
         options?: {
             includeTables?: boolean;
             includeRelationships?: boolean;
+            includeDependencies?: boolean;
         }
     ) => Promise<Diagram | undefined>;
     updateDiagram: (params: {
@@ -39,6 +41,7 @@ export interface StorageContext {
         id: string;
         attributes: Partial<DBTable>;
     }) => Promise<void>;
+    putTable: (params: { diagramId: string; table: DBTable }) => Promise<void>;
     deleteTable: (params: { diagramId: string; id: string }) => Promise<void>;
     listTables: (diagramId: string) => Promise<DBTable[]>;
     deleteDiagramTables: (diagramId: string) => Promise<void>;
@@ -62,6 +65,26 @@ export interface StorageContext {
     }) => Promise<void>;
     listRelationships: (diagramId: string) => Promise<DBRelationship[]>;
     deleteDiagramRelationships: (diagramId: string) => Promise<void>;
+
+    // Dependencies operations
+    addDependency: (params: {
+        diagramId: string;
+        dependency: DBDependency;
+    }) => Promise<void>;
+    getDependency: (params: {
+        diagramId: string;
+        id: string;
+    }) => Promise<DBDependency | undefined>;
+    updateDependency: (params: {
+        id: string;
+        attributes: Partial<DBDependency>;
+    }) => Promise<void>;
+    deleteDependency: (params: {
+        diagramId: string;
+        id: string;
+    }) => Promise<void>;
+    listDependencies: (diagramId: string) => Promise<DBDependency[]>;
+    deleteDiagramDependencies: (diagramId: string) => Promise<void>;
 }
 
 export const storageContext = createContext<StorageContext>({
@@ -77,6 +100,7 @@ export const storageContext = createContext<StorageContext>({
     addTable: emptyFn,
     getTable: emptyFn,
     updateTable: emptyFn,
+    putTable: emptyFn,
     deleteTable: emptyFn,
     listTables: emptyFn,
     deleteDiagramTables: emptyFn,
@@ -87,4 +111,11 @@ export const storageContext = createContext<StorageContext>({
     deleteRelationship: emptyFn,
     listRelationships: emptyFn,
     deleteDiagramRelationships: emptyFn,
+
+    addDependency: emptyFn,
+    getDependency: emptyFn,
+    updateDependency: emptyFn,
+    deleteDependency: emptyFn,
+    listDependencies: emptyFn,
+    deleteDiagramDependencies: emptyFn,
 });

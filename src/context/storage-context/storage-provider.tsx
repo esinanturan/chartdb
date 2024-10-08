@@ -1,10 +1,13 @@
 import React from 'react';
-import { StorageContext, storageContext } from './storage-context';
+import type { StorageContext } from './storage-context';
+import { storageContext } from './storage-context';
 import Dexie, { type EntityTable } from 'dexie';
-import { Diagram } from '@/lib/domain/diagram';
-import { DBTable } from '@/lib/domain/db-table';
-import { DBRelationship } from '@/lib/domain/db-relationship';
-import { ChartDBConfig } from '@/lib/domain/config';
+import type { Diagram } from '@/lib/domain/diagram';
+import type { DBTable } from '@/lib/domain/db-table';
+import type { DBRelationship } from '@/lib/domain/db-relationship';
+import { determineCardinalities } from '@/lib/domain/db-relationship';
+import type { ChartDBConfig } from '@/lib/domain/config';
+import type { DBDependency } from '@/lib/domain/db-dependency';
 
 export const StorageProvider: React.FC<React.PropsWithChildren> = ({
     children,
@@ -20,6 +23,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         >;
         db_relationships: EntityTable<
             DBRelationship & { diagramId: string },
+            'id' // primary key "id" (for the typings only)
+        >;
+        db_dependencies: EntityTable<
+            DBDependency & { diagramId: string },
             'id' // primary key "id" (for the typings only)
         >;
         config: EntityTable<
@@ -61,6 +68,57 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             '++id, diagramId, name, x, y, fields, indexes, color, createdAt, width',
         db_relationships:
             '++id, diagramId, name, sourceTableId, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+        config: '++id, defaultDiagramId',
+    });
+
+    db.version(4).stores({
+        diagrams:
+            '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
+        db_tables:
+            '++id, diagramId, name, x, y, fields, indexes, color, createdAt, width, comment',
+        db_relationships:
+            '++id, diagramId, name, sourceTableId, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+        config: '++id, defaultDiagramId',
+    });
+
+    db.version(5).stores({
+        diagrams:
+            '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
+        db_tables:
+            '++id, diagramId, name, schema, x, y, fields, indexes, color, createdAt, width, comment',
+        db_relationships:
+            '++id, diagramId, name, sourceSchema, sourceTableId, targetSchema, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+        config: '++id, defaultDiagramId',
+    });
+
+    db.version(6).upgrade((tx) =>
+        tx
+            .table<DBRelationship & { diagramId: string }>('db_relationships')
+            .toCollection()
+            .modify((relationship, ref) => {
+                const {
+                    sourceCardinality,
+                    targetCardinality,
+                } = // @ts-expect-error string before
+                    determineCardinalities(relationship.type ?? 'one_to_one');
+
+                relationship.sourceCardinality = sourceCardinality;
+                relationship.targetCardinality = targetCardinality;
+
+                // @ts-expect-error string before
+                delete ref.value.type;
+            })
+    );
+
+    db.version(7).stores({
+        diagrams:
+            '++id, name, databaseType, databaseEdition, createdAt, updatedAt',
+        db_tables:
+            '++id, diagramId, name, schema, x, y, fields, indexes, color, createdAt, width, comment',
+        db_relationships:
+            '++id, diagramId, name, sourceSchema, sourceTableId, targetSchema, targetTableId, sourceFieldId, targetFieldId, type, createdAt',
+        db_dependencies:
+            '++id, diagramId, schema, tableId, dependentSchema, dependentTableId, createdAt',
         config: '++id, defaultDiagramId',
     });
 
@@ -118,6 +176,13 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
             )
         );
 
+        const dependencies = diagram.dependencies ?? [];
+        promises.push(
+            ...dependencies.map((dependency) =>
+                addDependency({ diagramId: diagram.id, dependency })
+            )
+        );
+
         await Promise.all(promises);
     };
 
@@ -155,6 +220,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         options: {
             includeTables?: boolean;
             includeRelationships?: boolean;
+            includeDependencies?: boolean;
         } = { includeRelationships: false, includeTables: false }
     ): Promise<Diagram | undefined> => {
         const diagram = await db.diagrams.get(id);
@@ -169,6 +235,10 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
 
         if (options.includeRelationships) {
             diagram.relationships = await listRelationships(id);
+        }
+
+        if (options.includeDependencies) {
+            diagram.dependencies = await listDependencies(id);
         }
 
         return diagram;
@@ -228,6 +298,13 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         attributes,
     }) => {
         await db.db_tables.update(id, attributes);
+    };
+
+    const putTable: StorageContext['putTable'] = async ({
+        diagramId,
+        table,
+    }) => {
+        await db.db_tables.put({ ...table, diagramId });
     };
 
     const deleteTable: StorageContext['deleteTable'] = async ({
@@ -325,6 +402,54 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
         });
     };
 
+    const addDependency: StorageContext['addDependency'] = async ({
+        diagramId,
+        dependency,
+    }) => {
+        await db.db_dependencies.add({
+            ...dependency,
+            diagramId,
+        });
+    };
+
+    const getDependency: StorageContext['getDependency'] = async ({
+        diagramId,
+        id,
+    }) => {
+        return await db.db_dependencies.get({ id, diagramId });
+    };
+
+    const updateDependency: StorageContext['updateDependency'] = async ({
+        id,
+        attributes,
+    }) => {
+        await db.db_dependencies.update(id, attributes);
+    };
+
+    const deleteDependency: StorageContext['deleteDependency'] = async ({
+        diagramId,
+        id,
+    }) => {
+        await db.db_dependencies.where({ id, diagramId }).delete();
+    };
+
+    const listDependencies: StorageContext['listDependencies'] = async (
+        diagramId
+    ) => {
+        return await db.db_dependencies
+            .where('diagramId')
+            .equals(diagramId)
+            .toArray();
+    };
+
+    const deleteDiagramDependencies: StorageContext['deleteDiagramDependencies'] =
+        async (diagramId) => {
+            await db.db_dependencies
+                .where('diagramId')
+                .equals(diagramId)
+                .delete();
+        };
+
     return (
         <storageContext.Provider
             value={{
@@ -338,6 +463,7 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 addTable,
                 getTable,
                 updateTable,
+                putTable,
                 deleteTable,
                 listTables,
                 addRelationship,
@@ -347,6 +473,12 @@ export const StorageProvider: React.FC<React.PropsWithChildren> = ({
                 listRelationships,
                 deleteDiagramTables,
                 deleteDiagramRelationships,
+                addDependency,
+                getDependency,
+                updateDependency,
+                deleteDependency,
+                listDependencies,
+                deleteDiagramDependencies,
             }}
         >
             {children}
